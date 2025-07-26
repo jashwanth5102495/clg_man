@@ -378,7 +378,7 @@ const AdminDashboard: React.FC = () => {
                   className="text-gray-400 hover:text-white text-2xl"
                 >
                   ×
-                </button>
+                </button> 
               </div>
 
               <div className="space-y-6">
