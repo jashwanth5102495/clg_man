@@ -7,6 +7,14 @@ import Button from '../../components/UI/Button';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 
+interface Mark {
+  subject: string;
+  marks: number;
+  totalMarks: number;
+  date: string;
+  isPassed: boolean;
+}
+
 interface StudentData {
   personalInfo: {
     name: string;
@@ -23,15 +31,21 @@ interface StudentData {
     message?: string;
     fine?: number;
     needsAction?: boolean;
-    records: any[];
+    records: {
+      subject: string;
+      date: string;
+      present: boolean;
+      formattedDate: string;
+    }[];
   };
   marks: {
-    internal: any[];
-    semester: any[];
+    internal: Mark[];
+    semester: Mark[];
     averageInternal: number;
     averageSemester: number;
   };
   suggestions: string[];
+  workingDays: number;
 }
 
 const StudentDashboard: React.FC = () => {
@@ -184,7 +198,7 @@ const StudentDashboard: React.FC = () => {
                 <p className="text-2xl font-bold text-white">{studentData.attendance.percentage}%</p>
                 <p className="text-gray-400">Attendance</p>
                 <p className={`text-sm font-medium ${
-                  studentData.attendance.status === 'Safe' ? 'text-green-400' :
+                  studentData.attendance.status === 'Good' ? 'text-green-400' :
                   studentData.attendance.status === 'Warning' ? 'text-yellow-400' : 'text-red-400'
                 }`}>
                   {studentData.attendance.status}
@@ -202,7 +216,7 @@ const StudentDashboard: React.FC = () => {
                 <BookOpen className="w-6 h-6 text-white" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-white">{studentData.marks.averageInternal}%</p>
+                <p className="text-2xl font-bold text-white">{studentData.marks.averageInternal.toFixed(2)}%</p>
                 <p className="text-gray-400">Internal Average</p>
                 <p className={`text-sm font-medium ${studentData.marks.averageInternal >= 50 ? 'text-green-400' : 'text-red-400'}`}>
                   {studentData.marks.averageInternal >= 50 ? 'Passing' : 'Needs Improvement'}
@@ -217,7 +231,7 @@ const StudentDashboard: React.FC = () => {
                 <BookOpen className="w-6 h-6 text-white" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-white">{studentData.marks.averageSemester}%</p>
+                <p className="text-2xl font-bold text-white">{studentData.marks.averageSemester.toFixed(2)}%</p>
                 <p className="text-gray-400">Semester Average</p>
                 <p className={`text-sm font-medium ${studentData.marks.averageSemester >= 50 ? 'text-green-400' : 'text-red-400'}`}>
                   {studentData.marks.averageSemester >= 50 ? 'Passing' : 'Needs Improvement'}
@@ -242,7 +256,9 @@ const StudentDashboard: React.FC = () => {
                   <ul className="text-red-200 text-sm space-y-1">
                     <li>• Contact your Head of Department (HOD) immediately</li>
                     <li>• Discuss your attendance situation and improvement plan</li>
-                    <li>• Pay the fine amount: ₹{studentData.attendance.fine}</li>
+                    <li>•                    {studentData.attendance.fine && studentData.attendance.fine > 0 && (
+                      <span>Pay the fine amount: ₹{studentData.attendance.fine}</span>
+                    )}</li>
                     <li>• Ensure regular attendance going forward</li>
                   </ul>
                 </div>
@@ -293,7 +309,7 @@ const StudentDashboard: React.FC = () => {
             {/* Subject-wise Attendance */}
             <div>
               <h4 className="text-lg font-semibold text-white mb-4">Subject-wise Attendance</h4>
-              {studentData.attendance.records.length > 0 ? (
+              {studentData.attendance.records && studentData.attendance.records.length > 0 ? (
                 <div className="space-y-3">
                   {Object.entries(
                     studentData.attendance.records.reduce((acc: any, record: any) => {
@@ -335,7 +351,7 @@ const StudentDashboard: React.FC = () => {
                 </div>
               ) : (
                 <div className="text-center py-8">
-                  <Calendar className="w-16 h-16 text-gray-500 mx-auto mb-4" />
+                  <Calendar className="w-16 h-16 text-gray-500 mx-auto mb-3" />
                   <p className="text-gray-400">No attendance records found</p>
                 </div>
               )}
@@ -344,7 +360,7 @@ const StudentDashboard: React.FC = () => {
             {/* Absent Dates */}
             <div>
               <h4 className="text-lg font-semibold text-white mb-4">Recent Absent Dates</h4>
-              {studentData.attendance.records.filter((record: any) => !record.present).length > 0 ? (
+              {studentData.attendance.records && studentData.attendance.records.filter((record: any) => !record.present).length > 0 ? (
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {studentData.attendance.records
                     .filter((record: any) => !record.present)
@@ -377,9 +393,9 @@ const StudentDashboard: React.FC = () => {
           {/* Internal Marks */}
           <Card className="p-6 bg-neutral-800">
             <h3 className="text-xl font-bold text-white mb-6">Internal Marks</h3>
-            {studentData.marks.internal.length > 0 ? (
+            {studentData.marks.internal && studentData.marks.internal.length > 0 ? (
               <div className="space-y-4">
-                {studentData.marks.internal.map((mark: any, index: number) => (
+                {studentData.marks.internal.map((mark: Mark, index: number) => (
                   <div key={index} className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
                     <div>
                       <p className="text-white font-medium">{mark.subject}</p>
@@ -407,9 +423,9 @@ const StudentDashboard: React.FC = () => {
           {/* Semester Marks */}
           <Card className="p-6 bg-neutral-800">
             <h3 className="text-xl font-bold text-white mb-6">Semester Marks</h3>
-            {studentData.marks.semester.length > 0 ? (
+            {studentData.marks.semester && studentData.marks.semester.length > 0 ? (
               <div className="space-y-4">
-                {studentData.marks.semester.map((mark: any, index: number) => (
+                {studentData.marks.semester.map((mark: Mark, index: number) => (
                   <div key={index} className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
                     <div>
                       <p className="text-white font-medium">{mark.subject}</p>
@@ -436,7 +452,7 @@ const StudentDashboard: React.FC = () => {
         </div>
 
         {/* Course Suggestions */}
-        {studentData.suggestions.length > 0 && (
+        {studentData.suggestions && studentData.suggestions.length > 0 && (
           <Card className="p-6 bg-neutral-800">
             <h3 className="text-xl font-bold text-white mb-6">Course Suggestions</h3>
             <div className="grid md:grid-cols-2 gap-4">

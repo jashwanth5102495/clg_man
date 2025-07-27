@@ -31,25 +31,60 @@ const upload = multer({
 // Get student dashboard data
 router.get('/dashboard', verifyToken, async (req, res) => {
   try {
+    console.log('=== GET STUDENT DASHBOARD START ===');
+    console.log('User:', req.user);
+
     if (req.user.role !== 'student') {
       console.log('Access denied - role:', req.user.role);
-      return res.status(403).json({ message: 'Access denied' });
+      return res.status(403).json({ message: 'Access denied - not a student' });
     }
 
-    const student = await Student.findById(req.user.userId); // Use userId
-    const classDoc = await Class.findOne({ classCode: student.classCode });
-
-    if (!student || !classDoc) {
-      console.log('Student or class not found:', { student: !!student, classDoc: !!classDoc });
-      return res.status(404).json({ message: 'Student or class not found' });
+    const student = await Student.findById(req.user.studentId).populate('class');
+    if (!student) {
+      console.log('Student not found for ID:', req.user.studentId);
+      return res.status(404).json({ message: 'Student not found' });
     }
+
+    if (!student.class) {
+      console.log('No class assigned to student:', student._id);
+      return res.status(404).json({ message: 'Class not assigned to student' });
+    }
+
+    const classDoc = await Class.findById(student.class._id);
+    if (!classDoc) {
+      console.log('Class document not found for ID:', student.class._id);
+      return res.status(404).json({ message: 'Class not found' });
+    }
+
+    console.log('Found student:', student.name, 'Class:', classDoc.classCode);
 
     // Generate course suggestions
-    student.generateSuggestions();
+    // student.generateSuggestions();
     await student.save();
 
     // Get attendance status with working days calculation
     const attendanceStatus = await student.getAttendanceStatus();
+
+    // Prepare marks data
+    const internalMarks = student.marks
+      .filter(mark => mark.type === 'internal')
+      .map(mark => ({
+        subject: mark.subject,
+        marks: mark.marks,
+        totalMarks: mark.totalMarks,
+        date: mark.date,
+        isPassed: mark.marks >= (mark.totalMarks * 0.5) // Pass if marks >= 50% of total
+      }));
+
+    const semesterMarks = student.marks
+      .filter(mark => mark.type === 'semester')
+      .map(mark => ({
+        subject: mark.subject,
+        marks: mark.marks,
+        totalMarks: mark.totalMarks,
+        date: mark.date,
+        isPassed: mark.marks >= (mark.totalMarks * 0.5) // Pass if marks >= 50% of total
+      }));
 
     // Prepare response data
     const dashboardData = {
@@ -60,7 +95,7 @@ router.get('/dashboard', verifyToken, async (req, res) => {
         address: student.address,
         university: classDoc.university,
         course: classDoc.course,
-        classCode: student.classCode
+        classCode: classDoc.classCode
       },
       attendance: {
         percentage: attendanceStatus.percentage,
@@ -76,15 +111,16 @@ router.get('/dashboard', verifyToken, async (req, res) => {
         }))
       },
       marks: {
-        internal: student.internalMarks,
-        semester: student.semesterMarks,
+        internal: internalMarks,
+        semester: semesterMarks,
         averageInternal: student.getAverageMarks('internal'),
         averageSemester: student.getAverageMarks('semester')
       },
-      suggestions: student.suggestions,
+      suggestions: student.suggestions || [],
       workingDays: classDoc.workingDays || 100
     };
 
+    console.log('Returning dashboard data for:', student.name);
     res.json(dashboardData);
   } catch (error) {
     console.error('Get student dashboard error:', error);
@@ -107,7 +143,7 @@ router.get('/class/:classCode', verifyToken, async (req, res) => {
     const { classCode } = req.params;
 
     console.log('Looking for class with classCode:', classCode);
-    const classDoc = await Class.findOne({ classCode });
+    const classDoc = await Class.findOne({ classCode: { $regex: `^${classCode}$`, $options: 'i' } });
     if (!classDoc) {
       console.log('Class not found for classCode:', classCode);
       return res.status(404).json({ message: 'Class not found' });
@@ -116,7 +152,7 @@ router.get('/class/:classCode', verifyToken, async (req, res) => {
     console.log('Found class:', classDoc.classCode);
     console.log('User classCode:', req.user.classCode);
 
-    if (req.user.classCode !== classCode) {
+    if (req.user.classCode !== classDoc.classCode) {
       console.log('Access denied - classCode mismatch:', { user: req.user.classCode, class: classDoc.classCode });
       return res.status(403).json({ message: 'Access denied to this class' });
     }
@@ -181,41 +217,48 @@ router.get('/class/:classCode', verifyToken, async (req, res) => {
   }
 });
 
-
 // Update student attendance
 router.put('/:studentId/attendance', verifyToken, async (req, res) => {
   try {
+    console.log('=== UPDATE STUDENT ATTENDANCE START ===');
+    console.log('User:', req.user);
+    console.log('StudentId:', req.params.studentId);
+
     if (req.user.role !== 'faculty') {
       console.log('Access denied - role:', req.user.role);
-      return res.status(403).json({ message: 'Access denied' });
+      return res.status(403).json({ message: 'Access denied - not a teacher' });
     }
 
     const { studentId } = req.params;
     const { week, present } = req.body;
 
-    const student = await Student.findById(studentId);
-
+    const student = await Student.findById(studentId).populate('class');
     if (!student) {
       console.log('Student not found:', studentId);
       return res.status(404).json({ message: 'Student not found' });
     }
 
-    if (req.user.classCode !== student.classCode) {
-      console.log('Access denied - classCode mismatch:', { user: req.user.classCode, student: student.classCode });
-      return res.status(403).json({ message: 'Access denied' });
+    if (!student.class) {
+      console.log('No class assigned to student:', student._id);
+      return res.status(404).json({ message: 'Class not assigned to student' });
+    }
+
+    if (req.user.classCode !== student.class.classCode) {
+      console.log('Access denied - classCode mismatch:', { user: req.user.classCode, student: student.class.classCode });
+      return res.status(403).json({ message: 'Access denied to this student' });
     }
 
     // Update or add attendance record
     const existingRecord = student.attendance.find(att => att.week === week);
-
     if (existingRecord) {
       existingRecord.present = present;
       existingRecord.date = new Date();
     } else {
-      student.attendance.push({ week, present });
+      student.attendance.push({ week, present, date: new Date() });
     }
 
     await student.save();
+    console.log('Attendance updated for:', student.name);
 
     res.json({ message: 'Attendance updated successfully' });
   } catch (error) {
@@ -234,40 +277,37 @@ router.put('/:studentId/marks', verifyToken, async (req, res) => {
 
     if (req.user.role !== 'faculty') {
       console.log('Access denied - role:', req.user.role);
-      return res.status(403).json({ message: 'Access denied' });
+      return res.status(403).json({ message: 'Access denied - not a teacher' });
     }
 
     const { studentId } = req.params;
     const { type, marks } = req.body;
 
-    const student = await Student.findById(studentId);
-
+    const student = await Student.findById(studentId).populate('class');
     if (!student) {
       console.log('Student not found:', studentId);
       return res.status(404).json({ message: 'Student not found' });
     }
 
-    console.log('Found student:', student.name);
-
-    if (req.user.classCode !== student.classCode) {
-      console.log('Access denied - classCode mismatch:', { user: req.user.classCode, student: student.classCode });
-      return res.status(403).json({ message: 'Access denied' });
+    if (!student.class) {
+      console.log('No class assigned to student:', student._id);
+      return res.status(404).json({ message: 'Class not assigned to student' });
     }
 
-    if (type === 'internal') {
-      if (Array.isArray(marks)) {
-        student.internalMarks.push(...marks);
-      } else {
-        student.internalMarks.push(marks);
-      }
-    } else if (type === 'semester') {
-      if (Array.isArray(marks)) {
-        student.semesterMarks.push(...marks);
-      } else {
-        student.semesterMarks.push(marks);
-      }
-    } else {
-      return res.status(400).json({ message: 'Invalid marks type' });
+    if (req.user.classCode !== student.class.classCode) {
+      console.log('Access denied - classCode mismatch:', { user: req.user.classCode, student: student.class.classCode });
+      return res.status(403).json({ message: 'Access denied to this student' });
+    }
+
+    const marksArray = Array.isArray(marks) ? marks : [marks];
+    for (const mark of marksArray) {
+      student.marks.push({
+        subject: mark.subject,
+        marks: mark.marks,
+        totalMarks: mark.totalMarks || 100, // Default to 100 if not provided
+        type: type,
+        date: new Date()
+      });
     }
 
     await student.save();
@@ -277,7 +317,7 @@ router.put('/:studentId/marks', verifyToken, async (req, res) => {
       message: 'Marks updated successfully',
       student: student.name,
       type: type,
-      marksCount: Array.isArray(marks) ? marks.length : 1
+      marksCount: marksArray.length
     });
   } catch (error) {
     console.error('Update marks error:', error);
@@ -294,12 +334,11 @@ router.post('/upload-csv/:classId', verifyToken, upload.single('csvFile'), async
 
     if (req.user.role !== 'faculty') {
       console.log('Access denied - role:', req.user.role);
-      return res.status(403).json({ message: 'Access denied' });
+      return res.status(403).json({ message: 'Access denied - not a teacher' });
     }
 
     const { classId } = req.params;
 
-    // Find the class using classId and verify teacher access
     console.log('Looking for class with classId:', classId);
     const classDoc = await Class.findOne({ classId });
     if (!classDoc) {
@@ -340,9 +379,9 @@ router.post('/upload-csv/:classId', verifyToken, upload.single('csvFile'), async
                 dob: row.dob?.trim(),
                 parentName: row.parentName?.trim() || row['parent_name']?.trim(),
                 address: row.address?.trim(),
-                rollNumber: row.rollNumber?.trim(), // Optional: from CSV
-                university: row.university?.trim() || classDoc.university, // Fallback to classDoc
-                course: row.course?.trim() || classDoc.course // Fallback to classDoc
+                rollNumber: row.rollNumber?.trim(),
+                university: row.university?.trim() || classDoc.university,
+                course: row.course?.trim() || classDoc.course
               };
 
               console.log('Parsed student data:', student);
@@ -419,7 +458,7 @@ router.post('/upload-csv/:classId', verifyToken, upload.single('csvFile'), async
           address: studentData.address,
           university: studentData.university,
           course: studentData.course,
-          class: classDoc._id, // Use ObjectId
+          class: classDoc._id,
           credentials: {
             username,
             password: studentData.dob
@@ -449,7 +488,7 @@ router.post('/upload-csv/:classId', verifyToken, upload.single('csvFile'), async
           name: student.name,
           rollNumber: student.rollNumber,
           username: student.credentials.username,
-          password: studentData.dob // Return unhashed password for response
+          password: studentData.dob
         });
       } catch (error) {
         console.error('Error saving student:', studentData.name, error);
@@ -508,7 +547,7 @@ router.get('/by-class/:classId', verifyToken, async (req, res) => {
       return res.status(403).json({ message: 'Access denied to this class' });
     }
 
-    const students = await Student.find({ classCode: classDoc.classCode })
+    const students = await Student.find({ class: classDoc._id })
       .select('-credentials.password')
       .sort({ name: 1 });
 
@@ -520,11 +559,10 @@ router.get('/by-class/:classId', verifyToken, async (req, res) => {
       parentName: student.parentName,
       address: student.address,
       credentials: {
-        username: student.credentials.username,
-        password: student.credentials.password // Include for teacher
+        username: student.credentials.username
       },
       attendancePercentage: await student.getAttendancePercentage(),
-      attendanceStatus: await student.getAttendanceStatus(),
+      attendanceStatus: (await student.getAttendanceStatus()).status,
       averageInternal: student.getAverageMarks('internal'),
       averageSemester: student.getAverageMarks('semester'),
       isActive: student.isActive,
@@ -541,9 +579,13 @@ router.get('/by-class/:classId', verifyToken, async (req, res) => {
 // Take attendance for multiple students
 router.post('/attendance/:classId', verifyToken, async (req, res) => {
   try {
+    console.log('=== TAKE ATTENDANCE START ===');
+    console.log('User:', req.user);
+    console.log('Requested classId:', req.params.classId);
+
     if (req.user.role !== 'faculty') {
       console.log('Access denied - role:', req.user.role);
-      return res.status(403).json({ message: 'Access denied' });
+      return res.status(403).json({ message: 'Access denied - not a teacher' });
     }
 
     const { classId } = req.params;
@@ -566,13 +608,13 @@ router.post('/attendance/:classId', verifyToken, async (req, res) => {
 
     for (const record of attendanceData) {
       try {
-        const student = await Student.findById(record.studentId);
+        const student = await Student.findById(record.studentId).populate('class');
         if (!student) {
           errors.push(`Student not found: ${record.studentId}`);
           continue;
         }
 
-        if (student.classCode !== classDoc.classCode) {
+        if (!student.class || student.class.classCode !== classDoc.classCode) {
           errors.push(`Student ${student.name} not in this class`);
           continue;
         }
@@ -595,6 +637,7 @@ router.post('/attendance/:classId', verifyToken, async (req, res) => {
       }
     }
 
+    console.log('Attendance recorded:', results.length, 'students');
     res.json({
       message: 'Attendance recorded successfully',
       subject,
@@ -612,9 +655,13 @@ router.post('/attendance/:classId', verifyToken, async (req, res) => {
 // Upload marks CSV file
 router.post('/upload-marks/:classId', verifyToken, upload.single('marksFile'), async (req, res) => {
   try {
+    console.log('=== UPLOAD MARKS START ===');
+    console.log('User:', req.user);
+    console.log('Requested classId:', req.params.classId);
+
     if (req.user.role !== 'faculty') {
       console.log('Access denied - role:', req.user.role);
-      return res.status(403).json({ message: 'Access denied' });
+      return res.status(403).json({ message: 'Access denied - not a teacher' });
     }
 
     const { classId } = req.params;
@@ -648,6 +695,7 @@ router.post('/upload-marks/:classId', verifyToken, upload.single('marksFile'), a
                 rollNumber: row.rollNumber?.trim(),
                 subject: row.subject?.trim(),
                 marks: parseFloat(row.marks),
+                totalMarks: parseFloat(row.totalMarks) || 100, // Default to 100
                 type: row.type?.trim() || 'internal'
               };
 
@@ -681,27 +729,26 @@ router.post('/upload-marks/:classId', verifyToken, upload.single('marksFile'), a
       try {
         const student = await Student.findOne({
           rollNumber: mark.rollNumber,
-          classCode: classDoc.classCode
-        });
+          class: classDoc._id
+        }).populate('class');
 
         if (!student) {
           saveErrors.push(`Student not found: ${mark.rollNumber}`);
           continue;
         }
 
-        if (mark.type === 'internal') {
-          student.internalMarks.push({
-            subject: mark.subject,
-            marks: mark.marks,
-            date: new Date()
-          });
-        } else if (mark.type === 'semester') {
-          student.semesterMarks.push({
-            subject: mark.subject,
-            marks: mark.marks,
-            date: new Date()
-          });
+        if (!student.class || student.class.classCode !== classDoc.classCode) {
+          saveErrors.push(`Student ${mark.rollNumber} not in this class`);
+          continue;
         }
+
+        student.marks.push({
+          subject: mark.subject,
+          marks: mark.marks,
+          totalMarks: mark.totalMarks,
+          type: mark.type,
+          date: new Date()
+        });
 
         await student.save();
         results.push({
@@ -709,6 +756,7 @@ router.post('/upload-marks/:classId', verifyToken, upload.single('marksFile'), a
           name: student.name,
           subject: mark.subject,
           marks: mark.marks,
+          totalMarks: mark.totalMarks,
           type: mark.type
         });
       } catch (error) {
@@ -716,6 +764,7 @@ router.post('/upload-marks/:classId', verifyToken, upload.single('marksFile'), a
       }
     }
 
+    console.log('Marks upload completed:', results.length, 'marks');
     res.json({
       message: `${results.length} marks uploaded successfully`,
       marksUploaded: results.length,
@@ -735,30 +784,39 @@ router.post('/upload-marks/:classId', verifyToken, upload.single('marksFile'), a
 // Delete student
 router.delete('/:studentId', verifyToken, async (req, res) => {
   try {
+    console.log('=== DELETE STUDENT START ===');
+    console.log('User:', req.user);
+    console.log('StudentId:', req.params.studentId);
+
     if (req.user.role !== 'faculty') {
       console.log('Access denied - role:', req.user.role);
-      return res.status(403).json({ message: 'Access denied' });
+      return res.status(403).json({ message: 'Access denied - not a teacher' });
     }
 
     const { studentId } = req.params;
-    const student = await Student.findById(studentId);
-
+    const student = await Student.findById(studentId).populate('class');
     if (!student) {
       console.log('Student not found:', studentId);
       return res.status(404).json({ message: 'Student not found' });
     }
 
-    if (req.user.classCode !== student.classCode) {
-      console.log('Access denied - classCode mismatch:', { user: req.user.classCode, student: student.classCode });
+    if (!student.class) {
+      console.log('No class assigned to student:', student._id);
+      return res.status(404).json({ message: 'Class not assigned to student' });
+    }
+
+    if (req.user.classCode !== student.class.classCode) {
+      console.log('Access denied - classCode mismatch:', { user: req.user.classCode, student: student.class.classCode });
       return res.status(403).json({ message: 'Access denied to this student' });
     }
 
     await Student.findByIdAndDelete(studentId);
     await Class.findOneAndUpdate(
-      { classCode: student.classCode },
+      { classCode: student.class.classCode },
       { $pull: { studentIds: studentId } }
     );
 
+    console.log('Student deleted:', student.name);
     res.json({ message: 'Student deleted successfully' });
   } catch (error) {
     console.error('Delete student error:', error);
@@ -769,25 +827,38 @@ router.delete('/:studentId', verifyToken, async (req, res) => {
 // Get detailed student information (for teachers)
 router.get('/details/:studentId', verifyToken, async (req, res) => {
   try {
+    console.log('=== GET STUDENT DETAILS START ===');
+    console.log('User:', req.user);
+    console.log('StudentId:', req.params.studentId);
+
     if (req.user.role !== 'faculty') {
       console.log('Access denied - role:', req.user.role);
-      return res.status(403).json({ message: 'Access denied' });
+      return res.status(403).json({ message: 'Access denied - not a teacher' });
     }
 
     const { studentId } = req.params;
 
-    const student = await Student.findById(studentId);
+    const student = await Student.findById(studentId).populate('class');
     if (!student) {
       console.log('Student not found:', studentId);
       return res.status(404).json({ message: 'Student not found' });
     }
 
-    if (req.user.classCode !== student.classCode) {
-      console.log('Access denied - classCode mismatch:', { user: req.user.classCode, student: student.classCode });
+    if (!student.class) {
+      console.log('No class assigned to student:', student._id);
+      return res.status(404).json({ message: 'Class not assigned to student' });
+    }
+
+    if (req.user.classCode !== student.class.classCode) {
+      console.log('Access denied - classCode mismatch:', { user: req.user.classCode, student: student.class.classCode });
       return res.status(403).json({ message: 'Access denied to this student' });
     }
 
-    const classDoc = await Class.findOne({ classCode: student.classCode });
+    const classDoc = await Class.findById(student.class._id);
+    if (!classDoc) {
+      console.log('Class not found for ID:', student.class._id);
+      return res.status(404).json({ message: 'Class not found' });
+    }
 
     const studentDetails = {
       _id: student._id,
@@ -796,7 +867,7 @@ router.get('/details/:studentId', verifyToken, async (req, res) => {
       dob: student.dob,
       parentName: student.parentName,
       address: student.address,
-      classCode: student.classCode,
+      classCode: classDoc.classCode,
       credentials: {
         username: student.credentials.username,
         password: student.credentials.password
@@ -807,15 +878,28 @@ router.get('/details/:studentId', verifyToken, async (req, res) => {
         present: record.present,
         formattedDate: record.date.toLocaleDateString('en-GB')
       })),
-      internalMarks: student.internalMarks,
-      semesterMarks: student.semesterMarks,
+      internalMarks: student.marks.filter(mark => mark.type === 'internal').map(mark => ({
+        subject: mark.subject,
+        marks: mark.marks,
+        totalMarks: mark.totalMarks,
+        date: mark.date,
+        isPassed: mark.marks >= (mark.totalMarks * 0.5)
+      })),
+      semesterMarks: student.marks.filter(mark => mark.type === 'semester').map(mark => ({
+        subject: mark.subject,
+        marks: mark.marks,
+        totalMarks: mark.totalMarks,
+        date: mark.date,
+        isPassed: mark.marks >= (mark.totalMarks * 0.5)
+      })),
       attendancePercentage: await student.getAttendancePercentage(),
       attendanceStatus: await student.getAttendanceStatus(),
       averageInternal: student.getAverageMarks('internal'),
       averageSemester: student.getAverageMarks('semester'),
-      workingDays: classDoc?.workingDays || 100
+      workingDays: classDoc.workingDays || 100
     };
 
+    console.log('Returning details for:', student.name);
     res.json({ student: studentDetails });
   } catch (error) {
     console.error('Get student details error:', error);
@@ -826,9 +910,12 @@ router.get('/details/:studentId', verifyToken, async (req, res) => {
 // Change student password
 router.put('/change-password', verifyToken, async (req, res) => {
   try {
+    console.log('=== CHANGE STUDENT PASSWORD START ===');
+    console.log('User:', req.user);
+
     if (req.user.role !== 'student') {
       console.log('Access denied - role:', req.user.role);
-      return res.status(403).json({ message: 'Access denied' });
+      return res.status(403).json({ message: 'Access denied - not a student' });
     }
 
     const { currentPassword, newPassword } = req.body;
@@ -838,9 +925,9 @@ router.put('/change-password', verifyToken, async (req, res) => {
       return res.status(400).json({ message: 'Current password and new password are required' });
     }
 
-    const student = await Student.findById(req.user.userId);
+    const student = await Student.findById(req.user.studentId);
     if (!student) {
-      console.log('Student not found:', req.user.userId);
+      console.log('Student not found:', req.user.studentId);
       return res.status(404).json({ message: 'Student not found' });
     }
 
@@ -852,6 +939,7 @@ router.put('/change-password', verifyToken, async (req, res) => {
     student.credentials.password = newPassword; // Hash in production
     await student.save();
 
+    console.log('Password changed for:', student.name);
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
     console.error('Change password error:', error);
