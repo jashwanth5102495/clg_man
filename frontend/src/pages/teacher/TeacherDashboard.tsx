@@ -83,63 +83,67 @@ const TeacherDashboard: React.FC = () => {
         const teacherToken = localStorage.getItem('token');
         const teacherInfo = localStorage.getItem('teacher');
         if (!teacherToken || !teacherInfo) {
+          console.log('No token or teacher info in localStorage');
           navigate('/teacher');
           return;
         }
 
         const authData = JSON.parse(teacherInfo);
+        console.log('authData:', authData);
 
-        // Check if classInfo exists
-        if (!authData.classInfo) {
-          setTeacherData(null);
-          setSubjects([]);
-          setStudents([]);
-          setLoading(false);
-          return;
+        if (authData.classInfo) {
+          setTeacherData({
+            classId: authData.classInfo.classId || 'N/A',
+            classCode: authData.classInfo.classCode || 'N/A',
+            teacherName: authData.classInfo.teacherName || authData.user?.name || 'N/A',
+            university: authData.classInfo.university || 'N/A',
+            course: authData.classInfo.course || 'N/A',
+            year: authData.classInfo.year || 0,
+            semester: authData.classInfo.semester || 0
+          });
         }
 
-        // Set axios default Authorization header
-        axios.defaults.headers.common['Authorization'] = `Bearer ${teacherToken}`;
-
-        setTeacherData({
-          classId: 'Loading...',
-          classCode: authData.classInfo.classCode,
-          teacherName: authData.classInfo.teacherName || authData.user.name,
-          university: authData.classInfo.university,
-          course: authData.classInfo.course,
-          year: authData.classInfo.year,
-          semester: authData.classInfo.semester,
-        });
-
-        try {
-          const classResponse = await axios.get('/api/classes/my-class');
+        axios.get('/api/classes/my-class', {
+          headers: {
+            Authorization: `Bearer ${teacherToken}`
+          }
+        }).then(classResponse => {
+          console.log('Class response:', classResponse.data);
           if (classResponse.data.class) {
             const currentClass = classResponse.data.class;
             setTeacherData({
               classId: currentClass.classId || 'N/A',
               classCode: currentClass.classCode,
-              teacherName: currentClass.teacherName || authData.user.name,
+              teacherName: currentClass.teacherName || authData.user?.name || 'N/A',
               university: currentClass.university,
               course: currentClass.course,
               year: currentClass.year,
-              semester: currentClass.semester,
+              semester: currentClass.semester
             });
             setSubjects(currentClass.subjects || []);
-            await loadStudents(currentClass.classId, teacherToken);
+            loadStudents(currentClass.classCode, teacherToken); // Use classCode
           } else {
+            if (!authData.classInfo) {
+              console.log('No class found in API and no classInfo in localStorage');
+              setTeacherData(null);
+              setSubjects([]);
+              setStudents([]);
+              toast.error('No class assigned to this teacher');
+            }
+          }
+        }).catch(backendError => {
+          console.error('Error fetching class:', backendError.response?.data || backendError);
+          if (!authData.classInfo) {
+            console.log('No class found in API and no classInfo in localStorage');
             setTeacherData(null);
             setSubjects([]);
             setStudents([]);
+            toast.error('No class assigned to this teacher');
           }
-        } catch (backendError: any) {
-          setTeacherData(null);
-          setSubjects([]);
-          setStudents([]);
-          toast.error('No class assigned to this teacher');
-        }
-
+        });
         setLoading(false);
       } catch (error: any) {
+        console.error('Dashboard error:', error);
         setError(`Failed to load dashboard: ${error.message}`);
         setLoading(false);
       }
@@ -148,18 +152,13 @@ const TeacherDashboard: React.FC = () => {
     loadDashboard();
   }, [navigate]);
 
-  const loadStudents = async (classId: string, token: string) => {
+  const loadStudents = async (classCode: string, token: string) => {
     try {
-      console.log('Loading students for classId:', classId);
-      
-      axios.defaults.baseURL = 'http://localhost:5000';
-      
-      const response = await axios.get(`/api/students/by-class/${classId}`, {
+      console.log('Loading students for classCode:', classCode);
+      const response = await axios.get(`/api/students/class/${classCode}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
-      console.log('Students loaded:', response.data);
-      
+      console.log('Students response:', response.data);
       if (response.data.students) {
         setStudents(response.data.students);
         console.log('Set students count:', response.data.students.length);
@@ -168,10 +167,8 @@ const TeacherDashboard: React.FC = () => {
         console.log('No students data in response');
       }
     } catch (error: any) {
-      console.error('Error loading students:', error);
-      console.error('Error details:', error.response?.data);
+      console.error('Error loading students:', error.response?.data || error);
       setStudents([]);
-      
       if (error.response?.status === 403) {
         toast.error('Access denied. Please check your permissions.');
       } else if (error.response?.status === 404) {
@@ -191,7 +188,10 @@ const TeacherDashboard: React.FC = () => {
       formData.append('csvFile', uploadFile);
 
       const response = await axios.post(`/api/students/upload-csv/${teacherData.classId}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        }
       });
 
       toast.success(response.data.message);
@@ -199,10 +199,11 @@ const TeacherDashboard: React.FC = () => {
       setUploadFile(null);
 
       const teacherToken = localStorage.getItem('token');
-      if (teacherToken) {
-        await loadStudents(teacherData.classId, teacherToken);
+      if (teacherToken && teacherData.classCode) {
+        await loadStudents(teacherData.classCode, teacherToken); // Use classCode
       }
     } catch (error: any) {
+      console.error('CSV upload error:', error.response?.data || error);
       toast.error(error.response?.data?.message || 'Upload failed');
     } finally {
       setUploading(false);
@@ -214,6 +215,9 @@ const TeacherDashboard: React.FC = () => {
       toast.error('No class assigned. Cannot take attendance.');
       return;
     }
+    console.log('Taking attendance for subject:', subjectName);
+    console.log('Teacher data:', teacherData);
+
     setSelectedSubject(subjectName);
     setShowAttendanceModal(true);
   };
@@ -221,8 +225,10 @@ const TeacherDashboard: React.FC = () => {
   const handleAttendanceTaken = () => {
     if (teacherData) {
       const teacherToken = localStorage.getItem('token');
+      console.log(teacherToken, 'Teacher token after attendance taken');
+
       if (teacherToken) {
-        loadStudents(teacherData.classId, teacherToken);
+        loadStudents(teacherData.classCode, teacherToken);
       }
     }
   };
@@ -391,7 +397,7 @@ const TeacherDashboard: React.FC = () => {
             style={{
               background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
               color: 'white',
-              padding: '12px 20px',
+              padding: '側12px 20px',
               borderRadius: '10px',
               border: 'none',
               cursor: 'pointer',
@@ -750,8 +756,8 @@ const TeacherDashboard: React.FC = () => {
                       </td>
                       <td style={{ padding: '12px 16px' }}>
                         <span style={{
-                          color: (student.attendancePercentage || 0) >= 75 ? '#10b981' : 
-                                (student.attendancePercentage || 0) >= 50 ? '#f59e0b' : '#ef4444',
+                          color: (student.attendancePercentage || 0) >= 75 ? '#10b981' :
+                            (student.attendancePercentage || 0) >= 50 ? '#f59e0b' : '#ef4444',
                           fontWeight: '600'
                         }}>
                           {typeof student.attendancePercentage === 'number' ? student.attendancePercentage : 0}%

@@ -35,56 +35,55 @@ const AttendanceModal: React.FC<AttendanceModalProps> = ({
     if (isOpen) {
       loadStudents();
     }
-  }, [isOpen]);
+  }, [isOpen, classCode]);
 
   const loadStudents = async () => {
     try {
       setLoading(true);
-      const teacherAuth = localStorage.getItem('teacherAuth');
-      if (!teacherAuth) {
+      const token = localStorage.getItem('token');
+      if (!token) {
         toast.error('No authentication found. Please login again.');
+        setTimeout(() => {
+          localStorage.removeItem('token');
+          localStorage.removeItem('teacher');
+          window.location.href = '/teacher';
+        }, 2000);
         return;
       }
 
-      const authData = JSON.parse(teacherAuth);
-      console.log('Loading students for attendance...');
-      
-      // Set axios defaults
-      axios.defaults.baseURL = 'http://localhost:5000';
-      
-      const classDoc = await axios.get('/api/classes/my-class', {
-        headers: { Authorization: `Bearer ${authData.token}` }
+      console.log('Loading students for attendance with classCode:', classCode);
+      const response = await axios.get(`/api/students/class/${classCode}`, {
+        headers: { Authorization: `Bearer ${token}` }
       });
 
-      console.log('Class data:', classDoc.data);
+      console.log('Students response:', response.data);
 
-      if (classDoc.data.class) {
-        const response = await axios.get(`/api/students/by-class/${classDoc.data.class.classId}`, {
-          headers: { Authorization: `Bearer ${authData.token}` }
-        });
+      if (response.data.students && response.data.students.length > 0) {
+        const studentsWithAttendance = response.data.students.map((student: any) => ({
+          _id: student._id,
+          name: student.name,
+          rollNumber: student.rollNumber,
+          present: true // Default to present
+        }));
 
-        console.log('Students response:', response.data);
-
-        if (response.data.students && response.data.students.length > 0) {
-          const studentsWithAttendance = response.data.students.map((student: any) => ({
-            _id: student._id,
-            name: student.name,
-            rollNumber: student.rollNumber,
-            present: true // Default to present
-          }));
-
-          setStudents(studentsWithAttendance);
-          console.log('Students loaded successfully:', studentsWithAttendance.length);
-        } else {
-          toast.error('No students found in this class');
-        }
+        setStudents(studentsWithAttendance);
+        console.log('Students loaded successfully:', studentsWithAttendance.length);
       } else {
-        toast.error('Class information not found');
+        toast.error('No students found in this class');
       }
     } catch (error: any) {
       console.error('Error loading students:', error);
       console.error('Error details:', error.response?.data);
-      toast.error(error.response?.data?.message || 'Failed to load students. Please check your connection.');
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        toast.error('Session expired. Redirecting to login...');
+        setTimeout(() => {
+          localStorage.removeItem('token');
+          localStorage.removeItem('teacher');
+          window.location.href = '/teacher';
+        }, 2000);
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to load students. Please check your connection.');
+      }
     } finally {
       setLoading(false);
     }
@@ -109,14 +108,17 @@ const AttendanceModal: React.FC<AttendanceModalProps> = ({
   const handleSubmit = async () => {
     try {
       setSubmitting(true);
-      const teacherAuth = localStorage.getItem('teacherAuth');
-      if (!teacherAuth) {
+      const token = localStorage.getItem('token');
+      if (!token) {
         toast.error('No authentication found. Please login again.');
+        setTimeout(() => {
+          localStorage.removeItem('token');
+          localStorage.removeItem('teacher');
+          window.location.href = '/teacher';
+        }, 2000);
         return;
       }
 
-      const authData = JSON.parse(teacherAuth);
-      
       const attendanceData = students.map(student => ({
         studentId: student._id,
         present: student.present
@@ -125,19 +127,18 @@ const AttendanceModal: React.FC<AttendanceModalProps> = ({
       console.log('Submitting attendance:', {
         subject,
         date: selectedDate,
+        classCode,
         attendanceData: attendanceData.length,
         presentCount: attendanceData.filter(s => s.present).length
       });
 
-      // Set axios defaults
-      axios.defaults.baseURL = 'http://localhost:5000';
-
       const response = await axios.post('/api/attendance/take', {
         subject,
         date: selectedDate,
+        classCode,
         attendanceData
       }, {
-        headers: { Authorization: `Bearer ${authData.token}` }
+        headers: { Authorization: `Bearer ${token}` }
       });
 
       console.log('Attendance response:', response.data);
@@ -150,8 +151,13 @@ const AttendanceModal: React.FC<AttendanceModalProps> = ({
       
       if (error.response?.status === 400 && error.response?.data?.message?.includes('already taken')) {
         toast.error('Attendance already taken for this subject on this date');
-      } else if (error.response?.status === 403) {
-        toast.error('Access denied. Please check your permissions.');
+      } else if (error.response?.status === 401 || error.response?.status === 403) {
+        toast.error('Session expired. Redirecting to login...');
+        setTimeout(() => {
+          localStorage.removeItem('token');
+          localStorage.removeItem('teacher');
+          window.location.href = '/teacher';
+        }, 2000);
       } else if (error.response?.status === 404) {
         toast.error('Class not found. Please refresh and try again.');
       } else {

@@ -172,36 +172,39 @@ router.get('/debug-classes', async (req, res) => {
 router.get('/my-class', verifyToken, async (req, res) => {
   try {
     console.log('=== MY-CLASS ROUTE HIT ===');
-    console.log('User from token:', req.user);
+    console.log('User:', req.user);
 
-    if (req.user.type !== 'teacher') {
-      console.log('Access denied - not a teacher');
+    if (req.user.role !== 'faculty') {
+      console.log('Access denied - role:', req.user.role);
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    console.log('Looking for class with teacher:', req.user._id);
-    const classDoc = await Class.findOne({ teacher: req.user._id })
+    console.log('Looking for class with teacher:', req.user.userId);
+    const classDoc = await Class.findOne({ teacher: req.user.userId })
       .populate('teacher')
       .populate('subjects.teacher');
 
-    console.log('Found class:', classDoc ? 'YES' : 'NO');
-
     if (!classDoc) {
-      console.log('Class not found for teacher:', req.user._id);
-      const allClasses = await Class.find({});
+      console.log('Class not found for teacher:', req.user.userId);
+      const allClasses = await Class.find({}).select('classCode');
       console.log('Available classes:', allClasses.map(c => c.classCode));
-      return res.status(404).json({ 
+      return res.status(404).json({
         message: 'Class not found',
-        searchedFor: req.user._id,
+        searchedFor: req.user.userId,
         availableClasses: allClasses.map(c => c.classCode)
       });
     }
 
     console.log('Returning class data:', classDoc.classCode);
-    res.json({ 
+    res.json({
       class: {
-        ...classDoc.toObject(),
-        teacherName: classDoc.teacher ? classDoc.teacher.name : null,
+        classId: classDoc.classId,
+        classCode: classDoc.classCode,
+        teacherName: classDoc.teacher ? classDoc.teacher.name : req.user.username,
+        university: classDoc.university,
+        course: classDoc.course,
+        year: classDoc.year,
+        semester: classDoc.semester,
         subjects: classDoc.subjects.map(subject => ({
           name: subject.name,
           teacherId: subject.teacher ? subject.teacher._id : null,
@@ -267,6 +270,8 @@ router.get('/id/:classId', async (req, res) => {
     if (!classDoc) {
       return res.status(404).json({ message: 'Class not found' });
     }
+
+    console.log('Class found:', classDoc);
 
     res.json({ 
       class: {

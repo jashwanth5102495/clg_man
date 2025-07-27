@@ -28,15 +28,19 @@ const TeacherPortal: React.FC = () => {
         password: loginData.password
       });
 
-      console.log(response.data);
+      console.log('Login response:', response.data);
 
-      // Store JWT token and teacher info
+      // Store JWT token and teacher info (user and classInfo)
       localStorage.setItem('token', response.data.token);
-      localStorage.setItem('teacher', JSON.stringify(response.data.classInfo));
+      localStorage.setItem('teacher', JSON.stringify({
+        user: response.data.user,
+        classInfo: response.data.classInfo
+      }));
 
       toast.success('Login successful!');
       navigate('/teacher/dashboard');
     } catch (error: any) {
+      console.error('Login error:', error.response?.data || error);
       setError(error.response?.data?.message || 'Login failed. Please try again.');
       toast.error(error.response?.data?.message || 'Login failed. Please try again.');
     } finally {

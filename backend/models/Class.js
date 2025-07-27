@@ -14,6 +14,10 @@ const classSchema = new mongoose.Schema({
     name: { type: String, required: true },
     teacher: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
   }],
+  studentIds: [{ // Added studentIds field
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Student' // Ensure 'Student' matches the name of your Student model
+  }],
   workingDays: { type: Number, default: 0 },
   workingDaysLocked: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },

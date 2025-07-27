@@ -14,14 +14,13 @@ interface ClassData {
   year: number;
   semester: number;
   teacherName: string;
+  teacherUsername?: string; // Optional, include if backend sends teacherUsername
   classStrength: number;
   boys: number;
   girls: number;
-  credentials: {
-    username: string;
-  };
   createdAt: string;
-  subjects?: { name: string; teacherName: string }[];
+  subjects?: { name: string; teacherId?: string; teacherName?: string }[];
+  studentIds?: string[]; // Optional, include if you want to display student IDs
 }
 
 const ClassDetails: React.FC = () => {
@@ -34,6 +33,7 @@ const ClassDetails: React.FC = () => {
     const fetchClass = async () => {
       try {
         const response = await axios.get(`/api/classes/id/${classId}`);
+        console.log('Class details fetched:', response.data);
         setClassData(response.data.class);
       } catch (error: any) {
         toast.error(error.response?.data?.message || 'Failed to fetch class details');
@@ -72,7 +72,7 @@ const ClassDetails: React.FC = () => {
               <p className="text-gray-300 dark:text-gray-800"><strong>Class Strength:</strong> {classData.classStrength}</p>
               <p className="text-gray-300 dark:text-gray-800"><strong>Boys:</strong> {classData.boys}</p>
               <p className="text-gray-300 dark:text-gray-800"><strong>Girls:</strong> {classData.girls}</p>
-              <p className="text-gray-300 dark:text-gray-800"><strong>Username:</strong> {classData.credentials.username}</p>
+              <p className="text-gray-300 dark:text-gray-800"><strong>Teacher Username:</strong> {classData.teacherUsername || classData.teacherName || 'N/A'}</p>
               <p className="text-gray-300 dark:text-gray-800"><strong>Created At:</strong> {new Date(classData.createdAt).toLocaleString()}</p>
               <p className="text-gray-300 dark:text-gray-800"><strong>Class ID:</strong> {classData.classId}</p>
             </div>
@@ -83,7 +83,19 @@ const ClassDetails: React.FC = () => {
               <ul className="list-disc pl-6">
                 {classData.subjects.map((subj, idx) => (
                   <li key={idx} className="text-gray-300 dark:text-gray-800">
-                    <strong>{subj.name}</strong> - {subj.teacherName}
+                    <strong>{subj.name}</strong> - {subj.teacherName || 'N/A'}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {classData.studentIds && classData.studentIds.length > 0 && (
+            <div>
+              <h3 className="text-xl font-semibold text-white dark:text-black mb-2">Students</h3>
+              <ul className="list-disc pl-6">
+                {classData.studentIds.map((studentId, idx) => (
+                  <li key={idx} className="text-gray-300 dark:text-gray-800">
+                    Student ID: {studentId}
                   </li>
                 ))}
               </ul>
@@ -95,4 +107,4 @@ const ClassDetails: React.FC = () => {
   );
 };
 
-export default ClassDetails; 
+export default ClassDetails;

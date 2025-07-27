@@ -2,7 +2,7 @@
 import express from 'express';
 import Faculty from '../models/Faculty.js';
 import User from '../models/User.js';
-import { requireAuth } from '../routes/authRoutes.js';
+import { requireAuth } from '../middleware/auth.js';
 import bcrypt from 'bcryptjs';
 
 const router = express.Router();
@@ -12,6 +12,7 @@ router.post('/create', requireAuth(['admin']), async (req, res) => {
   try {
     const { name, username, password, collegeId, subjects } = req.body;
 
+    console.log(req.body);
     if (!name || !username || !password || !collegeId || !subjects) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
@@ -22,11 +23,13 @@ router.post('/create', requireAuth(['admin']), async (req, res) => {
       return res.status(409).json({ message: 'Username already exists' });
     }
 
+    console.log('Creating user and faculty...');
+
     // Create User
     const user = new User({
       name,
       username,
-      password: hashedPassword,
+      password,
       role: 'faculty',
       collegeId
     });

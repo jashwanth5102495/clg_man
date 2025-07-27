@@ -25,10 +25,11 @@ const StudentPortal: React.FC = () => {
     }
 
     try {
-      // Call the backend student login API using axios
-      const response = await axios.post('/api/auth/student/login', {
+      // Call the unified login API
+      const response = await axios.post('/api/auth/login', {
         username: loginData.username,
-        password: loginData.password
+        password: loginData.password,
+        university: loginData.university
       });
 
       // Store authentication data

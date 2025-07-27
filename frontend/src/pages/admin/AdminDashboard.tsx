@@ -18,17 +18,16 @@ interface ClassData {
   year: number;
   semester: number;
   teacherName: string;
+  teacherUsername?: string; // Optional, include if backend sends teacherUsername
   classStrength: number;
   boys: number;
   girls: number;
-  credentials: {
-    username: string;
-  };
-  subjects: { name: string; teacherName: string }[];
+  subjects: { name: string; teacherId?: string; teacherName?: string }[];
   createdAt: string;
   isActive: boolean;
   workingDays?: number;
   workingDaysLocked?: boolean;
+  studentIds?: string[]; // Optional, to handle studentIds from backend
 }
 
 const AdminDashboard: React.FC = () => {
@@ -87,12 +86,13 @@ const AdminDashboard: React.FC = () => {
     if (window.confirm('Are you sure you want to delete this class?')) {
       try {
         await axios.delete(`/api/classes/${classId}`);
-        const updatedClasses = classes.filter(cls => cls._id !== classId);
+        const updatedClasses = classes.filter(cls => cls.classId !== classId);
         setClasses(updatedClasses);
         toast.success('Class deleted successfully');
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error deleting class:', error);
-        toast.error('Failed to delete class');
+        const errorMessage = error.response?.data?.message || 'Failed to delete class';
+        toast.error(errorMessage);
       }
     }
   };
@@ -115,7 +115,6 @@ const AdminDashboard: React.FC = () => {
         workingDays: workingDays
       });
 
-      // Update local state with the response data
       setClasses(classes.map(cls => 
         cls._id === selectedClass._id 
           ? { 
@@ -138,10 +137,10 @@ const AdminDashboard: React.FC = () => {
 
   const handleAddFaculty = async (e: React.FormEvent) => {
     e.preventDefault();
-    const token = localStorage.getItem('token'); // Use 'token', not 'adminToken'
+    const token = localStorage.getItem('token');
     try {
       await axios.post(
-        'http://localhost:5173/api/faculty/create',
+        '/api/faculty/create',
         {
           ...facultyData,
           subjects: facultyData.subjects.split(',').map(s => s.trim())
@@ -155,7 +154,8 @@ const AdminDashboard: React.FC = () => {
       );
       toast.success('Faculty created!');
       setShowAddFaculty(false);
-      // Optionally refresh faculty list here
+      const response = await axios.get('/api/faculty');
+      setFacultyList(response.data.faculty);
     } catch (err) {
       if (axios.isAxiosError(err)) {
         toast.error(err.response?.data?.message || 'Failed to create faculty');
@@ -327,7 +327,7 @@ const AdminDashboard: React.FC = () => {
                               {classData.workingDaysLocked ? 'View Working Days' : 'Set Working Days'}
                             </Button>
                             <Button
-                              onClick={() => handleDeleteClass(classData._id)}
+                              onClick={() => handleDeleteClass(classData.classId)}
                               icon={Trash2}
                               variant="danger"
                               size="sm"
@@ -345,7 +345,7 @@ const AdminDashboard: React.FC = () => {
                               <div className="grid md:grid-cols-2 gap-4">
                                 <div>
                                   <p className="text-sm text-gray-400">Username</p>
-                                  <p className="font-mono text-green-400">{classData.credentials.username}</p>
+                                  <p className="font-mono text-green-400">{classData.teacherUsername || classData.teacherName || 'N/A'}</p>
                                 </div>
                                 <div>
                                   <p className="text-sm text-gray-400">Password</p>
@@ -392,7 +392,6 @@ const AdminDashboard: React.FC = () => {
                 </div>
 
                 {selectedClass.workingDaysLocked ? (
-                  // View mode - working days are locked
                   <div className="bg-gray-800 p-4 rounded-lg">
                     <div className="flex justify-between items-center mb-2">
                       <h4 className="text-lg font-semibold text-white">Working Days</h4>
@@ -404,7 +403,6 @@ const AdminDashboard: React.FC = () => {
                     </p>
                   </div>
                 ) : (
-                  // Edit mode - working days can be set
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">
                       Total Working Days in Academic Year
