@@ -59,9 +59,66 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Student Management System API is running' });
 });
 
+// Test endpoint for marks allocation
+app.get('/api/test-marks', async (req, res) => {
+  try {
+    const Student = (await import('./models/Student.js')).default;
+    const Class = (await import('./models/Class.js')).default;
+    
+    const studentCount = await Student.countDocuments();
+    const classCount = await Class.countDocuments();
+    
+    res.json({ 
+      status: 'OK', 
+      message: 'Marks allocation test endpoint',
+      data: {
+        students: studentCount,
+        classes: classCount,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'ERROR', 
+      message: error.message 
+    });
+  }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('Error occurred:', {
+    message: err.message,
+    stack: err.stack,
+    url: req.url,
+    method: req.method,
+    body: req.body,
+    user: req.user
+  });
+  
+  // Handle specific error types
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({
+      message: 'Validation Error',
+      errors: Object.values(err.errors).map(e => e.message),
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Validation failed'
+    });
+  }
+  
+  if (err.name === 'CastError') {
+    return res.status(400).json({
+      message: 'Invalid ID format',
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Invalid request'
+    });
+  }
+  
+  if (err.code === 11000) {
+    return res.status(409).json({
+      message: 'Duplicate entry',
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Resource already exists'
+    });
+  }
+  
   res.status(500).json({ 
     message: 'Something went wrong!',
     error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'

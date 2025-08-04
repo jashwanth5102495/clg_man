@@ -6,6 +6,7 @@ import AttendanceModal from '../../components/AttendanceModal';
 import AttendanceHistory from '../../components/AttendanceHistory';
 import StudentOverviewModal from '../../components/StudentOverviewModal';
 import MarksAllocationModal from '../../components/MarksAllocationModal';
+import MarksTestComponent from '../../components/MarksTestComponent';
 
 interface TeacherData {
   classId: string;
@@ -243,7 +244,7 @@ const TeacherDashboard: React.FC = () => {
     if (teacherData) {
       const teacherToken = localStorage.getItem('token');
       if (teacherToken) {
-        loadStudents(teacherData.classId, teacherToken);
+        loadStudents(teacherData.classCode, teacherToken);
       }
     }
   };
@@ -427,6 +428,11 @@ const TeacherDashboard: React.FC = () => {
           <p style={{ color: currentTheme.textSecondary, fontSize: '18px', fontWeight: '500', margin: 0 }}>
             🎓 Class ID: {teacherData.classId} • 📚 {teacherData.classCode} • 🏛️ {teacherData.course} • 🏫 {teacherData.university}
           </p>
+        </div>
+
+        {/* Test Component - Remove in production */}
+        <div style={{ marginBottom: '40px' }}>
+          <MarksTestComponent />
         </div>
 
         {/* Stats Cards */}

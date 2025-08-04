@@ -43,13 +43,31 @@ const MarksAllocationModal: React.FC<MarksAllocationModalProps> = ({
   const loadStudentsAndSubjects = async () => {
     try {
       setLoading(true);
+      
+      // Try multiple token storage locations
+      let token = null;
+      let authData = null;
+      
+      // Check teacherAuth first
       const teacherAuth = localStorage.getItem('teacherAuth');
-      if (!teacherAuth) {
+      if (teacherAuth) {
+        try {
+          authData = JSON.parse(teacherAuth);
+          token = authData.token;
+        } catch (e) {
+          console.warn('Failed to parse teacherAuth:', e);
+        }
+      }
+      
+      // Fallback to regular token
+      if (!token) {
+        token = localStorage.getItem('token');
+      }
+      
+      if (!token) {
         toast.error('No authentication found. Please login again.');
         return;
       }
-
-      const authData = JSON.parse(teacherAuth);
       
       // Set axios defaults
       axios.defaults.baseURL = 'http://localhost:5000';
@@ -58,7 +76,7 @@ const MarksAllocationModal: React.FC<MarksAllocationModalProps> = ({
       
       // Get class data first
       const classDoc = await axios.get('/api/classes/my-class', {
-        headers: { Authorization: `Bearer ${authData.token}` }
+        headers: { Authorization: `Bearer ${token}` }
       });
 
       console.log('Class data loaded:', classDoc.data);
@@ -69,7 +87,7 @@ const MarksAllocationModal: React.FC<MarksAllocationModalProps> = ({
         
         // Load students
         const response = await axios.get(`/api/students/by-class/${classDoc.data.class.classId}`, {
-          headers: { Authorization: `Bearer ${authData.token}` }
+          headers: { Authorization: `Bearer ${token}` }
         });
 
         console.log('Students loaded for marks:', response.data);
@@ -93,7 +111,16 @@ const MarksAllocationModal: React.FC<MarksAllocationModalProps> = ({
     } catch (error: any) {
       console.error('Error loading students and subjects:', error);
       console.error('Error details:', error.response?.data);
-      toast.error(error.response?.data?.message || 'Failed to load data. Please check your connection.');
+      
+      if (error.response?.status === 401) {
+        toast.error('Authentication expired. Please login again.');
+        localStorage.removeItem('teacherAuth');
+        localStorage.removeItem('token');
+      } else if (error.response?.status === 403) {
+        toast.error('Access denied. Please check your permissions.');
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to load data. Please check your connection.');
+      }
     } finally {
       setLoading(false);
     }
@@ -134,35 +161,74 @@ const MarksAllocationModal: React.FC<MarksAllocationModalProps> = ({
 
     try {
       setSubmitting(true);
+      // Try multiple token storage locations
+      let token = null;
+      let authData = null;
+      
+      // Check teacherAuth first
       const teacherAuth = localStorage.getItem('teacherAuth');
-      if (!teacherAuth) {
+      if (teacherAuth) {
+        try {
+          authData = JSON.parse(teacherAuth);
+          token = authData.token;
+        } catch (e) {
+          console.warn('Failed to parse teacherAuth:', e);
+        }
+      }
+      
+      // Fallback to regular token
+      if (!token) {
+        token = localStorage.getItem('token');
+      }
+      
+      if (!token) {
         toast.error('No authentication found. Please login again.');
         return;
       }
-
-      const authData = JSON.parse(teacherAuth);
       
       console.log('Submitting marks for students:', studentsWithMarks.length);
 
-      // Allocate marks to each student
-      const promises = studentsWithMarks.map(student => {
-        const marks = parseFloat(student.marks);
-        return axios.put(`/api/students/${student._id}/marks`, {
-          type: marksData.type,
-          marks: [{
-            subject: marksData.subject,
-            marks: marks,
-            totalMarks: maxMarks,
-            date: new Date()
-          }]
-        }, {
-          headers: { Authorization: `Bearer ${authData.token}` }
-        });
+      // Get class data first to get classId
+      const classResponse = await axios.get('/api/classes/my-class', {
+        headers: { Authorization: `Bearer ${token}` }
       });
 
-      await Promise.all(promises);
+      if (!classResponse.data.class || !classResponse.data.class.classId) {
+        toast.error('Class information not found. Please try again.');
+        return;
+      }
 
-      toast.success(`Marks allocated successfully to ${studentsWithMarks.length} students!`);
+      const classId = classResponse.data.class.classId;
+
+      // Prepare bulk marks data
+      const studentsMarks = studentsWithMarks.map(student => ({
+        studentId: student._id,
+        marks: parseFloat(student.marks)
+      }));
+
+      // Use bulk marks allocation endpoint
+      const response = await axios.post(`/api/students/bulk-marks/${classId}`, {
+        subject: marksData.subject,
+        type: marksData.type,
+        maxMarks: maxMarks,
+        studentsMarks: studentsMarks
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      console.log('Bulk marks allocation response:', response.data);
+
+      if (response.data.errors && response.data.errors.length > 0) {
+        console.warn('Some errors occurred:', response.data.errors);
+        toast.success(`Marks allocated to ${response.data.studentsUpdated} students. ${response.data.errors.length} errors occurred.`);
+        
+        // Show first few errors
+        response.data.errors.slice(0, 3).forEach((error: string) => {
+          toast.error(error, { duration: 5000 });
+        });
+      } else {
+        toast.success(`Marks allocated successfully to ${response.data.studentsUpdated} students!`);
+      }
       
       // Reset form
       setStudents(prev => prev.map(student => ({ ...student, marks: '' })));
@@ -177,7 +243,16 @@ const MarksAllocationModal: React.FC<MarksAllocationModalProps> = ({
     } catch (error: any) {
       console.error('Error allocating marks:', error);
       console.error('Error details:', error.response?.data);
-      toast.error(error.response?.data?.message || 'Failed to allocate marks. Please try again.');
+      
+      if (error.response?.status === 403) {
+        toast.error('Access denied. Please check your permissions.');
+      } else if (error.response?.status === 404) {
+        toast.error('Class or students not found. Please refresh and try again.');
+      } else if (error.response?.status === 400) {
+        toast.error(error.response?.data?.message || 'Invalid data provided.');
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to allocate marks. Please try again.');
+      }
     } finally {
       setSubmitting(false);
     }

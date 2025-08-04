@@ -283,6 +283,15 @@ router.put('/:studentId/marks', verifyToken, async (req, res) => {
     const { studentId } = req.params;
     const { type, marks } = req.body;
 
+    // Validate input
+    if (!type || !marks) {
+      return res.status(400).json({ message: 'Type and marks are required' });
+    }
+
+    if (!['internal', 'semester'].includes(type)) {
+      return res.status(400).json({ message: 'Type must be either "internal" or "semester"' });
+    }
+
     const student = await Student.findById(studentId).populate('class');
     if (!student) {
       console.log('Student not found:', studentId);
@@ -294,17 +303,44 @@ router.put('/:studentId/marks', verifyToken, async (req, res) => {
       return res.status(404).json({ message: 'Class not assigned to student' });
     }
 
-    if (req.user.classCode !== student.class.classCode) {
-      console.log('Access denied - classCode mismatch:', { user: req.user.classCode, student: student.class.classCode });
+    // Check if teacher has access to this class
+    const teacherClass = await Class.findOne({ 
+      $or: [
+        { teacher: req.user.userId },
+        { 'subjects.teacher': req.user.userId }
+      ],
+      _id: student.class._id
+    });
+
+    if (!teacherClass) {
+      console.log('Access denied - teacher not assigned to this class');
       return res.status(403).json({ message: 'Access denied to this student' });
     }
 
     const marksArray = Array.isArray(marks) ? marks : [marks];
+    
+    // Validate marks data
+    for (const mark of marksArray) {
+      if (!mark.subject || typeof mark.marks !== 'number' || mark.marks < 0) {
+        return res.status(400).json({ 
+          message: 'Invalid marks data. Subject and valid marks are required.' 
+        });
+      }
+      
+      const totalMarks = mark.totalMarks || 100;
+      if (mark.marks > totalMarks) {
+        return res.status(400).json({ 
+          message: `Marks cannot exceed total marks (${totalMarks}) for subject ${mark.subject}` 
+        });
+      }
+    }
+
+    // Add marks to student
     for (const mark of marksArray) {
       student.marks.push({
         subject: mark.subject,
         marks: mark.marks,
-        totalMarks: mark.totalMarks || 100, // Default to 100 if not provided
+        totalMarks: mark.totalMarks || 100,
         type: type,
         date: new Date()
       });
@@ -317,11 +353,15 @@ router.put('/:studentId/marks', verifyToken, async (req, res) => {
       message: 'Marks updated successfully',
       student: student.name,
       type: type,
-      marksCount: marksArray.length
+      marksCount: marksArray.length,
+      marks: marksArray
     });
   } catch (error) {
     console.error('Update marks error:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 });
 
@@ -652,6 +692,129 @@ router.post('/attendance/:classId', verifyToken, async (req, res) => {
   }
 });
 
+// Bulk allocate marks to multiple students
+router.post('/bulk-marks/:classId', verifyToken, async (req, res) => {
+  try {
+    console.log('=== BULK MARKS ALLOCATION START ===');
+    console.log('User:', req.user);
+    console.log('ClassId:', req.params.classId);
+    console.log('Request body:', req.body);
+
+    if (req.user.role !== 'faculty') {
+      console.log('Access denied - role:', req.user.role);
+      return res.status(403).json({ message: 'Access denied - not a teacher' });
+    }
+
+    const { classId } = req.params;
+    const { subject, type, maxMarks, studentsMarks } = req.body;
+
+    // Validate input
+    if (!subject || !type || !studentsMarks || !Array.isArray(studentsMarks)) {
+      return res.status(400).json({ 
+        message: 'Subject, type, and studentsMarks array are required' 
+      });
+    }
+
+    if (!['internal', 'semester'].includes(type)) {
+      return res.status(400).json({ message: 'Type must be either "internal" or "semester"' });
+    }
+
+    const totalMarks = maxMarks || 100;
+
+    // Find the class
+    const classDoc = await Class.findOne({ classId });
+    if (!classDoc) {
+      console.log('Class not found for classId:', classId);
+      return res.status(404).json({ message: 'Class not found' });
+    }
+
+    // Check if teacher has access to this class
+    const teacherClass = await Class.findOne({ 
+      $or: [
+        { teacher: req.user.userId },
+        { 'subjects.teacher': req.user.userId }
+      ],
+      _id: classDoc._id
+    });
+
+    if (!teacherClass) {
+      console.log('Access denied - teacher not assigned to this class');
+      return res.status(403).json({ message: 'Access denied to this class' });
+    }
+
+    const results = [];
+    const errors = [];
+
+    // Process each student's marks
+    for (const studentMark of studentsMarks) {
+      try {
+        const { studentId, marks } = studentMark;
+        
+        if (!studentId || typeof marks !== 'number' || marks < 0 || marks > totalMarks) {
+          errors.push(`Invalid marks data for student ${studentId}`);
+          continue;
+        }
+
+        const student = await Student.findById(studentId).populate('class');
+        if (!student) {
+          errors.push(`Student not found: ${studentId}`);
+          continue;
+        }
+
+        if (!student.class || student.class._id.toString() !== classDoc._id.toString()) {
+          errors.push(`Student ${student.name} not in this class`);
+          continue;
+        }
+
+        // Add marks to student
+        student.marks.push({
+          subject: subject,
+          marks: marks,
+          totalMarks: totalMarks,
+          type: type,
+          date: new Date()
+        });
+
+        await student.save();
+        
+        results.push({
+          studentId: student._id,
+          name: student.name,
+          rollNumber: student.rollNumber,
+          subject: subject,
+          marks: marks,
+          totalMarks: totalMarks,
+          type: type
+        });
+
+        console.log(`Marks allocated to ${student.name}: ${marks}/${totalMarks}`);
+      } catch (error) {
+        console.error(`Error processing student ${studentMark.studentId}:`, error);
+        errors.push(`Error updating student ${studentMark.studentId}: ${error.message}`);
+      }
+    }
+
+    console.log(`Bulk marks allocation completed. Success: ${results.length}, Errors: ${errors.length}`);
+
+    res.json({
+      message: `Marks allocated successfully to ${results.length} students`,
+      subject: subject,
+      type: type,
+      totalMarks: totalMarks,
+      studentsUpdated: results.length,
+      totalProcessed: studentsMarks.length,
+      results: results,
+      errors: errors
+    });
+  } catch (error) {
+    console.error('Bulk marks allocation error:', error);
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // Upload marks CSV file
 router.post('/upload-marks/:classId', verifyToken, upload.single('marksFile'), async (req, res) => {
   try {
@@ -821,6 +984,97 @@ router.delete('/:studentId', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Delete student error:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get student marks
+router.get('/:studentId/marks', verifyToken, async (req, res) => {
+  try {
+    console.log('=== GET STUDENT MARKS START ===');
+    console.log('User:', req.user);
+    console.log('StudentId:', req.params.studentId);
+
+    if (req.user.role !== 'faculty' && req.user.role !== 'student') {
+      console.log('Access denied - role:', req.user.role);
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const { studentId } = req.params;
+
+    const student = await Student.findById(studentId).populate('class');
+    if (!student) {
+      console.log('Student not found:', studentId);
+      return res.status(404).json({ message: 'Student not found' });
+    }
+
+    if (!student.class) {
+      console.log('No class assigned to student:', student._id);
+      return res.status(404).json({ message: 'Class not assigned to student' });
+    }
+
+    // Check access permissions
+    if (req.user.role === 'faculty') {
+      const teacherClass = await Class.findOne({ 
+        $or: [
+          { teacher: req.user.userId },
+          { 'subjects.teacher': req.user.userId }
+        ],
+        _id: student.class._id
+      });
+
+      if (!teacherClass) {
+        console.log('Access denied - teacher not assigned to this class');
+        return res.status(403).json({ message: 'Access denied to this student' });
+      }
+    } else if (req.user.role === 'student') {
+      if (req.user.studentId !== studentId) {
+        console.log('Access denied - student can only view own marks');
+        return res.status(403).json({ message: 'Access denied' });
+      }
+    }
+
+    // Group marks by type and subject
+    const internalMarks = student.marks.filter(mark => mark.type === 'internal');
+    const semesterMarks = student.marks.filter(mark => mark.type === 'semester');
+
+    const marksData = {
+      student: {
+        _id: student._id,
+        name: student.name,
+        rollNumber: student.rollNumber,
+        class: student.class.classCode
+      },
+      marks: {
+        internal: internalMarks.map(mark => ({
+          subject: mark.subject,
+          marks: mark.marks,
+          totalMarks: mark.totalMarks,
+          percentage: ((mark.marks / mark.totalMarks) * 100).toFixed(2),
+          date: mark.date,
+          isPassed: mark.marks >= (mark.totalMarks * 0.5)
+        })),
+        semester: semesterMarks.map(mark => ({
+          subject: mark.subject,
+          marks: mark.marks,
+          totalMarks: mark.totalMarks,
+          percentage: ((mark.marks / mark.totalMarks) * 100).toFixed(2),
+          date: mark.date,
+          isPassed: mark.marks >= (mark.totalMarks * 0.5)
+        })),
+        averageInternal: student.getAverageMarks('internal'),
+        averageSemester: student.getAverageMarks('semester'),
+        totalMarks: student.marks.length
+      }
+    };
+
+    console.log('Returning marks data for:', student.name);
+    res.json(marksData);
+  } catch (error) {
+    console.error('Get student marks error:', error);
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 });
 

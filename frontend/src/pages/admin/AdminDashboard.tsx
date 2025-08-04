@@ -111,17 +111,19 @@ const AdminDashboard: React.FC = () => {
     if (!selectedClass) return;
 
     try {
-      const response = await axios.put(`/api/classes/${selectedClass._id}/working-days`, {
+      const response = await axios.put(`/api/classes/${selectedClass.classId}/working-days`, {
         workingDays: workingDays
       });
+      console.log("Response from the Admin Dashboard: ", response);
+      console.log("Classes: ", classes);
 
-      setClasses(classes.map(cls => 
-        cls._id === selectedClass._id 
-          ? { 
-              ...cls, 
-              workingDays: response.data.class.workingDays,
-              workingDaysLocked: response.data.class.workingDaysLocked 
-            }
+      setClasses(classes.map(cls =>
+        cls._id === selectedClass._id
+          ? {
+            ...cls,
+            workingDays: response.data.class.workingDays,
+            workingDaysLocked: response.data.class.workingDaysLocked
+          }
           : cls
       ));
 
@@ -168,7 +170,7 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="min-h-screen bg-neutral-900 dark:bg-white">
       <Header title="Admin Dashboard" showLogout showHome />
-      
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Header Section */}
         <div className="flex justify-between items-center mb-8">
@@ -247,7 +249,7 @@ const AdminDashboard: React.FC = () => {
         {/* Classes Table */}
         <Card className="p-6 bg-neutral-800 dark:bg-gray-100">
           <h3 className="text-xl font-bold text-white mb-6">All Classes</h3>
-          
+
           {classes.length === 0 ? (
             <div className="text-center py-12">
               <School className="w-16 h-16 text-gray-500 mx-auto mb-4" />
@@ -378,7 +380,7 @@ const AdminDashboard: React.FC = () => {
                   className="text-gray-400 hover:text-white text-2xl"
                 >
                   ×
-                </button> 
+                </button>
               </div>
 
               <div className="space-y-6">

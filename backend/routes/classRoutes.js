@@ -399,8 +399,11 @@ router.get('/:classCode/stats', verifyToken, async (req, res) => {
 });
 
 // Update working days for a class
+// Update working days for a class
 router.put('/:classId/working-days', async (req, res) => {
   try {
+    console.log("Request for updating working days received:", req.body);
+
     const { classId } = req.params;
     const { workingDays } = req.body;
 
@@ -408,8 +411,10 @@ router.put('/:classId/working-days', async (req, res) => {
       return res.status(400).json({ message: 'Working days must be between 50 and 365' });
     }
 
+    console.log('Updating working days for class:', classId, 'to', workingDays);
     // First check if working days are already set
     const existingClass = await Class.findOne({ classId });
+    console.log('Existing class found:', existingClass);
     
     if (!existingClass) {
       return res.status(404).json({ message: 'Class not found' });
@@ -419,19 +424,23 @@ router.put('/:classId/working-days', async (req, res) => {
     if (existingClass.workingDays && existingClass.workingDaysLocked) {
       return res.status(400).json({ 
         message: 'Working days have already been set and cannot be changed',
-        class: existingClass
+        class: existingClass.toObject()
       });
     }
 
     // Update with working days and lock it
     const updatedClass = await Class.findOneAndUpdate(
-      { classId },
+      { classId }, // Query by classId field
       { 
         workingDays: workingDays,
         workingDaysLocked: true
       },
       { new: true }
     ).populate('teacher').populate('subjects.teacher');
+
+    if (!updatedClass) {
+      return res.status(404).json({ message: 'Class not found' });
+    }
 
     res.json({ 
       message: 'Working days updated successfully and locked',
