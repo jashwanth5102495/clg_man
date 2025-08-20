@@ -20,7 +20,7 @@ interface ClassData {
   girls: number;
   createdAt: string;
   subjects?: { name: string; teacherId?: string; teacherName?: string }[];
-  studentIds?: string[]; // Optional, include if you want to display student IDs
+  studentIds?: Array<string | { _id: string; name: string; rollNumber: string }>; // Can be strings or student objects
 }
 
 const ClassDetails: React.FC = () => {
@@ -93,9 +93,12 @@ const ClassDetails: React.FC = () => {
             <div>
               <h3 className="text-xl font-semibold text-white dark:text-black mb-2">Students</h3>
               <ul className="list-disc pl-6">
-                {classData.studentIds.map((studentId, idx) => (
+                {classData.studentIds.map((student, idx) => (
                   <li key={idx} className="text-gray-300 dark:text-gray-800">
-                    Student ID: {studentId}
+                    {typeof student === 'string' 
+                      ? `Student ID: ${student}`
+                      : `${student.name} (Roll: ${student.rollNumber})`
+                    }
                   </li>
                 ))}
               </ul>
