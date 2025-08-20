@@ -79,4 +79,28 @@ router.get('/', requireAuth(['admin', 'faculty']), async (req, res) => {
   }
 });
 
+// Delete faculty (admin only)
+router.delete('/:facultyId', requireAuth(['admin']), async (req, res) => {
+  try {
+    const { facultyId } = req.params;
+    
+    // Find the faculty to get the associated user ID
+    const faculty = await Faculty.findById(facultyId);
+    if (!faculty) {
+      return res.status(404).json({ message: 'Faculty not found' });
+    }
+    
+    // Delete the faculty record
+    await Faculty.findByIdAndDelete(facultyId);
+    
+    // Delete the associated user record
+    await User.findByIdAndDelete(faculty.user);
+    
+    res.status(200).json({ message: 'Faculty deleted successfully' });
+  } catch (error) {
+    console.error('Delete faculty error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 export default router;

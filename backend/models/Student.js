@@ -2,10 +2,12 @@ import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 const studentSchema = new mongoose.Schema({
+  studentId: { type: String, required: true, unique: true }, // Unique identifier for students
   name: { type: String, required: true },
   rollNumber: { type: String, required: true, unique: true },
   dob: { type: String, required: true },
   parentName: { type: String },
+  parentPhone: { type: String },
   address: { type: String },
   university: { type: String, required: true },
   course: { type: String, required: true },

@@ -15,6 +15,7 @@ interface StudentDetails {
   rollNumber: string;
   dob: string;
   parentName: string;
+  parentPhone: string;
   address: string;
   classCode: string;
   credentials: {
@@ -194,6 +195,10 @@ const StudentOverviewModal: React.FC<StudentOverviewProps> = ({
                       <div>
                         <label className="block text-sm font-medium text-gray-400">Parent Name</label>
                         <p className="text-white">{studentDetails.parentName}</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-400">Parent Phone</label>
+                        <p className="text-white">{studentDetails.parentPhone || 'N/A'}</p>
                       </div>
                       <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-400">Address</label>

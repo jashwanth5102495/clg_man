@@ -24,6 +24,7 @@ interface Student {
   rollNumber: string;
   dob: string;
   parentName: string;
+  parentPhone: string;
   address: string;
   credentials: {
     username: string;
@@ -173,9 +174,9 @@ const TeacherDashboard: React.FC = () => {
       if (error.response?.status === 403) {
         toast.error('Access denied. Please check your permissions.');
       } else if (error.response?.status === 404) {
-        toast.error('Class not found. Please refresh and try again.');
+        toast.error('No students found in your class. Upload a CSV file to add students.');
       } else {
-        toast.error('Failed to load students. Please check your connection.');
+        toast.error('Unable to load students. Please try again.');
       }
     }
   };
@@ -188,7 +189,7 @@ const TeacherDashboard: React.FC = () => {
       const formData = new FormData();
       formData.append('csvFile', uploadFile);
 
-      const response = await axios.post(`/api/students/upload-csv/${teacherData.classId}`, formData, {
+      const response = await axios.post(`/api/students/upload-csv/${teacherData.classCode}`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           Authorization: `Bearer ${localStorage.getItem('token')}`
@@ -638,6 +639,16 @@ const TeacherDashboard: React.FC = () => {
                   <div>
                     <h4 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '8px', color: currentTheme.text }}>
                       {subject.name || subject}
+                      {subject.isLab && (
+                        <span style={{ 
+                          color: '#10b981', 
+                          fontSize: '14px', 
+                          fontWeight: 'normal',
+                          marginLeft: '8px'
+                        }}>
+                          ({subject.duration || 2}hrs)
+                        </span>
+                      )}
                     </h4>
                     <p style={{ color: currentTheme.textSecondary, margin: 0 }}>
                       Teacher: {subject.teacherName || 'N/A'}
@@ -721,6 +732,7 @@ const TeacherDashboard: React.FC = () => {
                     <th style={{ textAlign: 'left', padding: '12px 16px', color: currentTheme.textSecondary }}>Roll Number</th>
                     <th style={{ textAlign: 'left', padding: '12px 16px', color: currentTheme.textSecondary }}>DOB</th>
                     <th style={{ textAlign: 'left', padding: '12px 16px', color: currentTheme.textSecondary }}>Parent Name</th>
+                    <th style={{ textAlign: 'left', padding: '12px 16px', color: currentTheme.textSecondary }}>Parent Phone</th>
                     <th style={{ textAlign: 'left', padding: '12px 16px', color: currentTheme.textSecondary }}>Login</th>
                     <th style={{ textAlign: 'left', padding: '12px 16px', color: currentTheme.textSecondary }}>Attendance</th>
                   </tr>
@@ -754,6 +766,7 @@ const TeacherDashboard: React.FC = () => {
                       <td style={{ padding: '12px 16px', color: currentTheme.text }}>{student.rollNumber}</td>
                       <td style={{ padding: '12px 16px', color: currentTheme.text }}>{student.dob}</td>
                       <td style={{ padding: '12px 16px', color: currentTheme.text }}>{student.parentName}</td>
+                      <td style={{ padding: '12px 16px', color: currentTheme.text }}>{student.parentPhone || 'N/A'}</td>
                       <td style={{ padding: '12px 16px', color: currentTheme.text }}>
                         <div style={{ fontSize: '12px' }}>
                           <div>👤 {student.credentials.username}</div>

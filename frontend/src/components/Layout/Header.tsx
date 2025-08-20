@@ -39,7 +39,7 @@ const Header: React.FC<HeaderProps> = ({
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg">SM</span>
+              <span className="text-white font-bold text-lg">AO</span>
             </div>
             <h1 className="text-xl font-bold text-white">
               {title}

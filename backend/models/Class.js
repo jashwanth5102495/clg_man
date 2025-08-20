@@ -6,7 +6,7 @@ const classSchema = new mongoose.Schema({
   course: { type: String, required: true },
   year: { type: Number, required: true },
   semester: { type: Number, required: true },
-  teacher: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // Class teacher
+  teachers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Multiple faculty members assigned to this class
   classStrength: { type: Number, required: true },
   boys: { type: Number, required: true },
   girls: { type: Number, required: true },

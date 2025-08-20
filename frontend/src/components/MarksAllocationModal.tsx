@@ -86,7 +86,7 @@ const MarksAllocationModal: React.FC<MarksAllocationModalProps> = ({
         setClassSubjects(classDoc.data.class.subjects || []);
         
         // Load students
-        const response = await axios.get(`/api/students/by-class/${classDoc.data.class.classId}`, {
+        const response = await axios.get(`/api/students/by-class/${classDoc.data.class.classCode}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
 
@@ -198,7 +198,7 @@ const MarksAllocationModal: React.FC<MarksAllocationModalProps> = ({
         return;
       }
 
-      const classId = classResponse.data.class.classId;
+      const classCode = classResponse.data.class.classCode;
 
       // Prepare bulk marks data
       const studentsMarks = studentsWithMarks.map(student => ({
@@ -207,7 +207,7 @@ const MarksAllocationModal: React.FC<MarksAllocationModalProps> = ({
       }));
 
       // Use bulk marks allocation endpoint
-      const response = await axios.post(`/api/students/bulk-marks/${classId}`, {
+      const response = await axios.post(`/api/students/bulk-marks/${classCode}`, {
         subject: marksData.subject,
         type: marksData.type,
         maxMarks: maxMarks,

@@ -30,6 +30,7 @@ const AttendanceModal: React.FC<AttendanceModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedPeriod, setSelectedPeriod] = useState('1');
 
   useEffect(() => {
     if (isOpen) {
@@ -82,7 +83,7 @@ const AttendanceModal: React.FC<AttendanceModalProps> = ({
           window.location.href = '/teacher';
         }, 2000);
       } else {
-        toast.error(error.response?.data?.message || 'Failed to load students. Please check your connection.');
+        toast.error(error.response?.data?.message || 'Unable to load students. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -90,8 +91,8 @@ const AttendanceModal: React.FC<AttendanceModalProps> = ({
   };
 
   const toggleAttendance = (studentId: string) => {
-    setStudents(prev => prev.map(student => 
-      student._id === studentId 
+    setStudents(prev => prev.map(student =>
+      student._id === studentId
         ? { ...student, present: !student.present }
         : student
     ));
@@ -135,6 +136,7 @@ const AttendanceModal: React.FC<AttendanceModalProps> = ({
       const response = await axios.post('/api/attendance/take', {
         subject,
         date: selectedDate,
+        period: selectedPeriod,
         classCode,
         attendanceData
       }, {
@@ -148,7 +150,7 @@ const AttendanceModal: React.FC<AttendanceModalProps> = ({
     } catch (error: any) {
       console.error('Error taking attendance:', error);
       console.error('Error details:', error.response?.data);
-      
+
       if (error.response?.status === 400 && error.response?.data?.message?.includes('already taken')) {
         toast.error('Attendance already taken for this subject on this date');
       } else if (error.response?.status === 401 || error.response?.status === 403) {
@@ -159,7 +161,7 @@ const AttendanceModal: React.FC<AttendanceModalProps> = ({
           window.location.href = '/teacher';
         }, 2000);
       } else if (error.response?.status === 404) {
-        toast.error('Class not found. Please refresh and try again.');
+        toast.error('No students found in your class. Please upload students first.');
       } else {
         toast.error(error.response?.data?.message || 'Failed to record attendance. Please try again.');
       }
@@ -203,6 +205,21 @@ const AttendanceModal: React.FC<AttendanceModalProps> = ({
                 className="border border-gray-600 rounded-lg px-3 py-2 bg-gray-800 text-white focus:border-green-500 focus:ring-2 focus:ring-green-500"
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Period</label>
+              <select
+                value={selectedPeriod}
+                onChange={e => setSelectedPeriod(e.target.value)}
+                className="border border-gray-600 rounded-lg px-3 py-2 bg-gray-800 text-white focus:border-green-500 focus:ring-2 focus:ring-green-500"
+              >
+                <option value="1">1st Period</option>
+                <option value="2">2nd Period</option>
+                <option value="3">3rd Period</option>
+                <option value="4">4th Period</option>
+                <option value="5">5th Period</option>
+                <option value="6">6th Period</option>
+              </select>
+            </div>
             <div className="flex gap-2 md:ml-auto">
               <Button
                 onClick={markAllPresent}
@@ -242,11 +259,10 @@ const AttendanceModal: React.FC<AttendanceModalProps> = ({
               {students.map(student => (
                 <Card
                   key={student._id}
-                  className={`p-4 cursor-pointer transition-all border-2 flex flex-col justify-between ${
-                    student.present
-                      ? 'border-green-600 bg-green-900/30 hover:bg-green-900/40'
-                      : 'border-red-600 bg-red-900/30 hover:bg-red-900/40'
-                  }`}
+                  className={`p-4 cursor-pointer transition-all border-2 flex flex-col justify-between ${student.present
+                    ? 'border-green-600 bg-green-900/30 hover:bg-green-900/40'
+                    : 'border-red-600 bg-red-900/30 hover:bg-red-900/40'
+                    }`}
                   onClick={() => toggleAttendance(student._id)}
                   hover
                 >
@@ -256,16 +272,14 @@ const AttendanceModal: React.FC<AttendanceModalProps> = ({
                       <div className="text-sm text-gray-400">{student.rollNumber}</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={`text-sm font-medium ${
-                        student.present ? 'text-green-400' : 'text-red-400'
-                      }`}>
+                      <span className={`text-sm font-medium ${student.present ? 'text-green-400' : 'text-red-400'
+                        }`}>
                         {student.present ? 'Present' : 'Absent'}
                       </span>
-                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
-                        student.present
-                          ? 'bg-green-500 border-green-500'
-                          : 'bg-red-500 border-red-500'
-                      }`}>
+                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${student.present
+                        ? 'bg-green-500 border-green-500'
+                        : 'bg-red-500 border-red-500'
+                        }`}>
                         {student.present ? (
                           <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />

@@ -366,23 +366,23 @@ router.put('/:studentId/marks', verifyToken, async (req, res) => {
 });
 
 // Upload students CSV file
-router.post('/upload-csv/:classId', verifyToken, upload.single('csvFile'), async (req, res) => {
+router.post('/upload-csv/:classCode', verifyToken, upload.single('csvFile'), async (req, res) => {
   try {
     console.log('=== CSV UPLOAD START ===');
     console.log('User:', req.user);
-    console.log('Requested classId:', req.params.classId);
+    console.log('Requested classCode:', req.params.classCode);
 
     if (req.user.role !== 'faculty') {
       console.log('Access denied - role:', req.user.role);
       return res.status(403).json({ message: 'Access denied - not a teacher' });
     }
 
-    const { classId } = req.params;
+    const { classCode } = req.params;
 
-    console.log('Looking for class with classId:', classId);
-    const classDoc = await Class.findOne({ classId });
+    console.log('Looking for class with classCode:', classCode);
+    const classDoc = await Class.findOne({ classCode: { $regex: `^${classCode}$`, $options: 'i' } });
     if (!classDoc) {
-      console.log('Class not found for classId:', classId);
+      console.log('Class not found for classCode:', classCode);
       return res.status(404).json({ message: 'Class not found' });
     }
 
@@ -419,6 +419,7 @@ router.post('/upload-csv/:classId', verifyToken, upload.single('csvFile'), async
                 dob: row.dob?.trim(),
                 parentName: row.parentName?.trim() || row['parent_name']?.trim(),
                 address: row.address?.trim(),
+                parentPhone: row['parents number']?.trim() || row.parentPhone?.trim(),
                 rollNumber: row.rollNumber?.trim(),
                 university: row.university?.trim() || classDoc.university,
                 course: row.course?.trim() || classDoc.course
@@ -426,12 +427,16 @@ router.post('/upload-csv/:classId', verifyToken, upload.single('csvFile'), async
 
               console.log('Parsed student data:', student);
 
-              if (!student.name || !student.dob || !student.parentName || !student.address || !student.university || !student.course) {
+              if (!student.name || !student.dob || !student.parentName || !student.address) {
                 const error = `Missing required fields for student: ${student.name || 'Unknown'}`;
                 console.log('Validation error:', error);
                 errors.push(error);
                 return;
               }
+
+              // Set defaults for missing fields
+              if (!student.university) student.university = classDoc.university;
+              if (!student.course) student.course = classDoc.course;
 
               if (!/^\d{2}\/\d{2}\/\d{4}$/.test(student.dob)) {
                 const error = `Invalid DOB format for ${student.name}. Expected DD/MM/YYYY`;
@@ -474,13 +479,28 @@ router.post('/upload-csv/:classId', verifyToken, upload.single('csvFile'), async
       return res.status(400).json({ message: 'No valid students found in CSV' });
     }
 
+    // Check for existing students with same roll numbers
+    console.log('Checking for existing students...');
+    const existingStudents = await Student.find({ class: classDoc._id });
+    const existingRollNumbers = existingStudents.map(s => s.rollNumber);
+    const existingUsernames = existingStudents.map(s => s.credentials.username);
+    
+    console.log('Existing roll numbers:', existingRollNumbers);
+    console.log('Existing usernames:', existingUsernames);
+
     // Save students to database
     const savedStudents = [];
     const saveErrors = [];
+    const skippedStudents = [];
 
     for (const studentData of students) {
       try {
-        console.log('Saving student:', studentData.name);
+        console.log('Processing student:', studentData.name);
+
+        // Generate unique student ID
+        const timestamp = Date.now();
+        const randomSuffix = Math.random().toString(36).substring(2, 8);
+        const studentId = `STU-${timestamp}-${randomSuffix}`;
 
         // Generate rollNumber if not provided
         let rollNumber = studentData.rollNumber;
@@ -489,12 +509,37 @@ router.post('/upload-csv/:classId', verifyToken, upload.single('csvFile'), async
           rollNumber = `${classDoc.classCode}-${(count + 1).toString().padStart(4, '0')}`;
         }
 
-        const username = studentData.name.toLowerCase().replace(/\s+/g, '');
+        // Generate unique username (handle duplicate names)
+        let baseUsername = studentData.name.toLowerCase().replace(/\s+/g, '');
+        let username = baseUsername;
+        let usernameCounter = 1;
+        
+        // Check if username already exists and create unique one
+        while (existingUsernames.includes(username)) {
+          username = `${baseUsername}${usernameCounter}`;
+          usernameCounter++;
+        }
+        
+        // Check for duplicates before attempting to save
+        if (existingRollNumbers.includes(rollNumber)) {
+          console.log('Skipping duplicate roll number:', rollNumber);
+          skippedStudents.push(`${studentData.name} (roll number ${rollNumber} already exists)`);
+          continue;
+        }
+        
+        if (existingUsernames.includes(username)) {
+          console.log('Skipping duplicate username:', username);
+          skippedStudents.push(`${studentData.name} (username ${username} already exists)`);
+          continue;
+        }
+
         const student = new Student({
+          studentId,
           name: studentData.name,
           rollNumber,
           dob: studentData.dob,
           parentName: studentData.parentName,
+          parentPhone: studentData.parentPhone,
           address: studentData.address,
           university: studentData.university,
           course: studentData.course,
@@ -524,6 +569,10 @@ router.post('/upload-csv/:classId', verifyToken, upload.single('csvFile'), async
           { $addToSet: { studentIds: student._id } }
         );
 
+        // Add to existing arrays to prevent duplicates within the same upload
+        existingRollNumbers.push(rollNumber);
+        existingUsernames.push(username);
+
         savedStudents.push({
           name: student.name,
           rollNumber: student.rollNumber,
@@ -533,20 +582,31 @@ router.post('/upload-csv/:classId', verifyToken, upload.single('csvFile'), async
       } catch (error) {
         console.error('Error saving student:', studentData.name, error);
         if (error.code === 11000) {
-          saveErrors.push(`Duplicate student: ${studentData.name} (rollNumber or username)`);
+          const duplicateField = error.keyPattern.rollNumber ? 'roll number' : 'username';
+          saveErrors.push(`Duplicate ${duplicateField} for ${studentData.name}`);
         } else {
           saveErrors.push(`Error saving ${studentData.name}: ${error.message}`);
         }
       }
     }
 
-    console.log('Upload completed. Saved:', savedStudents.length, 'Total processed:', students.length);
+    console.log('Upload completed. Saved:', savedStudents.length, 'Skipped:', skippedStudents.length, 'Errors:', saveErrors.length);
+
+    let message = `${savedStudents.length} students added successfully`;
+    if (skippedStudents.length > 0) {
+      message += `, ${skippedStudents.length} skipped (already exist)`;
+    }
+    if (saveErrors.length > 0) {
+      message += `, ${saveErrors.length} errors`;
+    }
 
     res.json({
-      message: `${savedStudents.length} students added successfully`,
+      message,
       studentsUploaded: savedStudents.length,
+      studentsSkipped: skippedStudents.length,
       totalProcessed: students.length,
       students: savedStudents,
+      skipped: skippedStudents,
       errors: saveErrors
     });
   } catch (error) {
@@ -559,23 +619,23 @@ router.post('/upload-csv/:classId', verifyToken, upload.single('csvFile'), async
 });
 
 // Get students for a specific class (for teacher dashboard)
-router.get('/by-class/:classId', verifyToken, async (req, res) => {
+router.get('/by-class/:classCode', verifyToken, async (req, res) => {
   try {
     console.log('=== GET STUDENTS BY CLASS START ===');
     console.log('User:', req.user);
-    console.log('Requested classId:', req.params.classId);
+    console.log('Requested classCode:', req.params.classCode);
 
     if (req.user.role !== 'faculty') {
       console.log('Access denied - role:', req.user.role);
       return res.status(403).json({ message: 'Access denied - not a teacher' });
     }
 
-    const { classId } = req.params;
+    const { classCode } = req.params;
 
-    console.log('Looking for class with classId:', classId);
-    const classDoc = await Class.findOne({ classId });
+    console.log('Looking for class with classCode:', classCode);
+    const classDoc = await Class.findOne({ classCode: { $regex: `^${classCode}$`, $options: 'i' } });
     if (!classDoc) {
-      console.log('Class not found for classId:', classId);
+      console.log('Class not found for classCode:', classCode);
       return res.status(404).json({ message: 'Class not found' });
     }
 
@@ -617,24 +677,24 @@ router.get('/by-class/:classId', verifyToken, async (req, res) => {
 });
 
 // Take attendance for multiple students
-router.post('/attendance/:classId', verifyToken, async (req, res) => {
+router.post('/attendance/:classCode', verifyToken, async (req, res) => {
   try {
     console.log('=== TAKE ATTENDANCE START ===');
     console.log('User:', req.user);
-    console.log('Requested classId:', req.params.classId);
+    console.log('Requested classCode:', req.params.classCode);
 
     if (req.user.role !== 'faculty') {
       console.log('Access denied - role:', req.user.role);
       return res.status(403).json({ message: 'Access denied - not a teacher' });
     }
 
-    const { classId } = req.params;
+    const { classCode } = req.params;
     const { subject, date, attendanceData } = req.body;
 
-    console.log('Looking for class with classId:', classId);
-    const classDoc = await Class.findOne({ classId });
+    console.log('Looking for class with classCode:', classCode);
+    const classDoc = await Class.findOne({ classCode: { $regex: `^${classCode}$`, $options: 'i' } });
     if (!classDoc) {
-      console.log('Class not found for classId:', classId);
+      console.log('Class not found for classCode:', classCode);
       return res.status(404).json({ message: 'Class not found' });
     }
 
@@ -693,11 +753,11 @@ router.post('/attendance/:classId', verifyToken, async (req, res) => {
 });
 
 // Bulk allocate marks to multiple students
-router.post('/bulk-marks/:classId', verifyToken, async (req, res) => {
+router.post('/bulk-marks/:classCode', verifyToken, async (req, res) => {
   try {
     console.log('=== BULK MARKS ALLOCATION START ===');
     console.log('User:', req.user);
-    console.log('ClassId:', req.params.classId);
+    console.log('ClassCode:', req.params.classCode);
     console.log('Request body:', req.body);
 
     if (req.user.role !== 'faculty') {
@@ -705,7 +765,7 @@ router.post('/bulk-marks/:classId', verifyToken, async (req, res) => {
       return res.status(403).json({ message: 'Access denied - not a teacher' });
     }
 
-    const { classId } = req.params;
+    const { classCode } = req.params;
     const { subject, type, maxMarks, studentsMarks } = req.body;
 
     // Validate input
@@ -722,9 +782,9 @@ router.post('/bulk-marks/:classId', verifyToken, async (req, res) => {
     const totalMarks = maxMarks || 100;
 
     // Find the class
-    const classDoc = await Class.findOne({ classId });
+    const classDoc = await Class.findOne({ classCode: { $regex: `^${classCode}$`, $options: 'i' } });
     if (!classDoc) {
-      console.log('Class not found for classId:', classId);
+      console.log('Class not found for classCode:', classCode);
       return res.status(404).json({ message: 'Class not found' });
     }
 
@@ -816,22 +876,22 @@ router.post('/bulk-marks/:classId', verifyToken, async (req, res) => {
 });
 
 // Upload marks CSV file
-router.post('/upload-marks/:classId', verifyToken, upload.single('marksFile'), async (req, res) => {
+router.post('/upload-marks/:classCode', verifyToken, upload.single('marksFile'), async (req, res) => {
   try {
     console.log('=== UPLOAD MARKS START ===');
     console.log('User:', req.user);
-    console.log('Requested classId:', req.params.classId);
+    console.log('Requested classCode:', req.params.classCode);
 
     if (req.user.role !== 'faculty') {
       console.log('Access denied - role:', req.user.role);
       return res.status(403).json({ message: 'Access denied - not a teacher' });
     }
 
-    const { classId } = req.params;
-    console.log('Looking for class with classId:', classId);
-    const classDoc = await Class.findOne({ classId });
+    const { classCode } = req.params;
+    console.log('Looking for class with classCode:', classCode);
+    const classDoc = await Class.findOne({ classCode: { $regex: `^${classCode}$`, $options: 'i' } });
     if (!classDoc) {
-      console.log('Class not found for classId:', classId);
+      console.log('Class not found for classCode:', classCode);
       return res.status(404).json({ message: 'Class not found' });
     }
 

@@ -14,7 +14,7 @@ const MinimalLanding = () => (
     alignItems: 'center',
     justifyContent: 'center'
   }}>
-    <h1 style={{ fontSize: '32px', marginBottom: '20px' }}>Student Management System</h1>
+    <h1 style={{ fontSize: '32px', marginBottom: '20px' }}>Akash Online Attendance Management System</h1>
     <div style={{ display: 'flex', gap: '20px' }}>
       <Link to="/teacher" style={{
         backgroundColor: '#10B981',

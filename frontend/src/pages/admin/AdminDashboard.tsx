@@ -20,6 +20,7 @@ interface ClassData {
   teacherName: string;
   teacherUsername?: string; // Optional, include if backend sends teacherUsername
   classStrength: number;
+  actualStudentCount: number; // Real-time student count from database
   boys: number;
   girls: number;
   subjects: { name: string; teacherId?: string; teacherName?: string }[];
@@ -45,8 +46,22 @@ const AdminDashboard: React.FC = () => {
     collegeId: '',
     subjects: ''
   });
-  const [facultyList, setFacultyList] = useState<any[]>([]);
+  const [facultyList, setFacultyList] = useState<FacultyData[]>([]);
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
+
+  interface FacultyData {
+    _id: string;
+    name: string;
+    collegeId: string;
+    subjects: string[];
+    user: {
+      _id: string;
+      name: string;
+      username: string;
+      collegeId: string;
+    };
+    createdAt: string;
+  }
 
   useEffect(() => {
     // Check admin authentication
@@ -83,12 +98,13 @@ const AdminDashboard: React.FC = () => {
   }, [navigate]);
 
   const handleDeleteClass = async (classId: string) => {
-    if (window.confirm('Are you sure you want to delete this class?')) {
+    if (window.confirm('Are you sure you want to delete this class? This will also delete all students in the class.')) {
       try {
         await axios.delete(`/api/classes/${classId}`);
-        const updatedClasses = classes.filter(cls => cls.classId !== classId);
-        setClasses(updatedClasses);
-        toast.success('Class deleted successfully');
+        // Refresh classes data to get updated student counts
+        const response = await axios.get('/api/classes');
+        setClasses(response.data.classes);
+        toast.success('Class and associated students deleted successfully');
       } catch (error: any) {
         console.error('Error deleting class:', error);
         const errorMessage = error.response?.data?.message || 'Failed to delete class';
@@ -156,6 +172,7 @@ const AdminDashboard: React.FC = () => {
       );
       toast.success('Faculty created!');
       setShowAddFaculty(false);
+      setFacultyData({ name: '', username: '', password: '', collegeId: '', subjects: '' });
       const response = await axios.get('/api/faculty');
       setFacultyList(response.data.faculty);
     } catch (err) {
@@ -163,6 +180,28 @@ const AdminDashboard: React.FC = () => {
         toast.error(err.response?.data?.message || 'Failed to create faculty');
       } else {
         toast.error('Failed to create faculty');
+      }
+    }
+  };
+
+  const handleDeleteFaculty = async (facultyId: string, facultyName: string) => {
+    if (window.confirm(`Are you sure you want to delete faculty "${facultyName}"? This action cannot be undone.`)) {
+      const token = localStorage.getItem('token');
+      try {
+        await axios.delete(`/api/faculty/${facultyId}`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        toast.success('Faculty deleted successfully');
+        const response = await axios.get('/api/faculty');
+        setFacultyList(response.data.faculty);
+      } catch (err) {
+        if (axios.isAxiosError(err)) {
+          toast.error(err.response?.data?.message || 'Failed to delete faculty');
+        } else {
+          toast.error('Failed to delete faculty');
+        }
       }
     }
   };
@@ -212,7 +251,7 @@ const AdminDashboard: React.FC = () => {
               </div>
               <div>
                 <p className="text-2xl font-bold text-white">
-                  {classes.reduce((sum, cls) => sum + cls.classStrength, 0)}
+                  {classes.reduce((sum, cls) => sum + (cls.actualStudentCount || 0), 0)}
                 </p>
                 <p className="text-gray-400">Total Students</p>
               </div>
@@ -239,8 +278,8 @@ const AdminDashboard: React.FC = () => {
                 <Users className="w-6 h-6 text-white" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-white">{classes.length}</p>
-                <p className="text-gray-400">Teachers</p>
+                <p className="text-2xl font-bold text-white dark:text-black">{facultyList.length}</p>
+                <p className="text-gray-400 dark:text-gray-600">Faculty</p>
               </div>
             </div>
           </Card>
@@ -360,6 +399,77 @@ const AdminDashboard: React.FC = () => {
                         </tr>
                       )}
                     </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        {/* Faculty Management Section */}
+        <Card className="p-6 bg-neutral-800 dark:bg-gray-100 mt-8">
+          <h3 className="text-xl font-bold text-white dark:text-black mb-6">Faculty Management</h3>
+
+          {facultyList.length === 0 ? (
+            <div className="text-center py-12">
+              <Users className="w-16 h-16 text-gray-500 mx-auto mb-4" />
+              <h4 className="text-lg font-medium text-gray-400 dark:text-gray-600 mb-2">
+                No Faculty Created
+              </h4>
+              <p className="text-gray-500 mb-6">
+                Create your first faculty member to get started
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-700 dark:border-gray-300">
+                    <th className="text-left py-3 px-4 text-gray-300 dark:text-gray-700">Name</th>
+                    <th className="text-left py-3 px-4 text-gray-300 dark:text-gray-700">Username</th>
+                    <th className="text-left py-3 px-4 text-gray-300 dark:text-gray-700">College ID</th>
+                    <th className="text-left py-3 px-4 text-gray-300 dark:text-gray-700">Subjects</th>
+                    <th className="text-left py-3 px-4 text-gray-300 dark:text-gray-700">Created</th>
+                    <th className="text-left py-3 px-4 text-gray-300 dark:text-gray-700">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {facultyList.map((faculty) => (
+                    <tr key={faculty._id} className="border-b border-gray-800 dark:border-gray-200 hover:bg-gray-800/50 dark:hover:bg-gray-50">
+                      <td className="py-4 px-4">
+                        <div>
+                          <p className="font-medium text-white dark:text-black">{faculty.user.name}</p>
+                          <p className="text-sm text-gray-400 dark:text-gray-600">Faculty Member</p>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4 text-gray-300 dark:text-gray-800">{faculty.user.username}</td>
+                      <td className="py-4 px-4 text-gray-300 dark:text-gray-800">{faculty.user.collegeId}</td>
+                      <td className="py-4 px-4">
+                        <div className="flex flex-wrap gap-1">
+                          {faculty.subjects.map((subject, index) => (
+                            <span
+                              key={index}
+                              className="px-2 py-1 bg-blue-900/50 dark:bg-blue-100 text-blue-300 dark:text-blue-800 text-xs rounded-full"
+                            >
+                              {subject}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="py-4 px-4 text-gray-300 dark:text-gray-800">
+                        {new Date(faculty.createdAt).toLocaleDateString()}
+                      </td>
+                      <td className="py-4 px-4">
+                        <Button
+                          onClick={() => handleDeleteFaculty(faculty._id, faculty.user.name)}
+                          icon={Trash2}
+                          variant="danger"
+                          size="sm"
+                        >
+                          Delete
+                        </Button>
+                      </td>
+                    </tr>
                   ))}
                 </tbody>
               </table>

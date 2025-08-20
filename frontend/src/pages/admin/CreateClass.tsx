@@ -22,14 +22,15 @@ const CreateClass: React.FC = () => {
     course: '',
     university: 'BCU',
     year: '',
-    semester: '',
-    teacherId: ''
+    semester: ''
   });
 
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [newSubject, setNewSubject] = useState({ name: '', teacherId: '' });
   const [customSubjectChecked, setCustomSubjectChecked] = useState(false);
   const [customSubjectName, setCustomSubjectName] = useState('');
+  const [isLabSelected, setIsLabSelected] = useState(false);
+  const [labSubjectName, setLabSubjectName] = useState('');
   const [facultyList, setFacultyList] = useState<any[]>([]);
 
   useEffect(() => {
@@ -52,7 +53,8 @@ const CreateClass: React.FC = () => {
   const availableSubjects = [
     'Mathematics', 'Programming', 'Database', 'Networks', 'AI/ML', 'Linux',
     'Data Structures', 'Operating Systems', 'Software Engineering', 'Web Development',
-    'Computer Graphics', 'Compiler Design', 'Theory of Computation', 'Digital Electronics'
+    'Computer Graphics', 'Compiler Design', 'Theory of Computation', 'Digital Electronics',
+    'LAB'
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -70,10 +72,7 @@ const CreateClass: React.FC = () => {
       return;
     }
 
-    if (!classData.teacherId) {
-      toast.error('Please select a class teacher');
-      return;
-    }
+
 
     // Validate subjects array
     for (const subject of subjects) {
@@ -91,8 +90,7 @@ const CreateClass: React.FC = () => {
         boys: parseInt(classData.boys),
         girls: parseInt(classData.girls),
         year: parseInt(classData.year),
-        semester: parseInt(classData.semester),
-        teacherId: classData.teacherId
+        semester: parseInt(classData.semester)
       };
       console.log('Sending payload:', payload); // Debug payload
       const response = await axios.post('/api/classes/create', payload);
@@ -120,7 +118,17 @@ const CreateClass: React.FC = () => {
   };
 
   const addSubject = () => {
-    const subjectName = customSubjectChecked ? customSubjectName : newSubject.name;
+    let subjectName = customSubjectChecked ? customSubjectName : newSubject.name;
+    
+    // Handle LAB selection
+    if (newSubject.name === 'LAB') {
+      if (!labSubjectName.trim()) {
+        toast.error('Please enter the subject name for the lab');
+        return;
+      }
+      subjectName = `${labSubjectName} LAB`;
+    }
+    
     if (!subjectName.trim()) {
       toast.error('Please provide a subject name');
       return;
@@ -133,10 +141,20 @@ const CreateClass: React.FC = () => {
       toast.error('Subject already exists');
       return;
     }
-    setSubjects(prev => [...prev, { name: subjectName, teacherId: newSubject.teacherId }]);
+    
+    const subjectData = {
+      name: subjectName,
+      teacherId: newSubject.teacherId,
+      isLab: newSubject.name === 'LAB',
+      duration: newSubject.name === 'LAB' ? 2 : 1 // 2 hours for lab, 1 hour for regular subjects
+    };
+    
+    setSubjects(prev => [...prev, subjectData]);
     setNewSubject({ name: '', teacherId: '' });
     setCustomSubjectName('');
     setCustomSubjectChecked(false);
+    setIsLabSelected(false);
+    setLabSubjectName('');
     toast.success('Subject added successfully');
   };
 
@@ -337,31 +355,7 @@ const CreateClass: React.FC = () => {
               </div>
             </div>
 
-            {/* Class Teacher */}
-            <div>
-              <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
-                <Users className="w-5 h-5 mr-2" />
-                Class Teacher
-              </h3>
-              <div className="space-y-1">
-                <label className="block text-sm font-medium text-gray-300">
-                  Class Teacher <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={classData.teacherId}
-                  onChange={(e) => handleInputChange('teacherId', e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors duration-200"
-                  required
-                >
-                  <option value="">Select Class Teacher</option>
-                  {facultyList.map(faculty => (
-                    <option key={faculty.user._id} value={faculty.user._id}>
-                      {faculty.name} ({faculty.collegeId})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+
 
             {/* Subjects and Teachers */}
             <div>
@@ -378,13 +372,19 @@ const CreateClass: React.FC = () => {
                   </label>
                   <select
                     value={customSubjectChecked ? '' : newSubject.name}
-                    onChange={(e) => setNewSubject(prev => ({ ...prev, name: e.target.value }))}
+                    onChange={(e) => {
+                      setNewSubject(prev => ({ ...prev, name: e.target.value }));
+                      setIsLabSelected(e.target.value === 'LAB');
+                      if (e.target.value !== 'LAB') {
+                        setLabSubjectName('');
+                      }
+                    }}
                     className="w-full px-3 py-2.5 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors duration-200"
                     disabled={customSubjectChecked}
                   >
                     <option value="">Select Subject</option>
                     {availableSubjects.filter(subject => 
-                      !subjects.some(s => s.name === subject)
+                      !subjects.some(s => s.name === subject || (subject === 'LAB' && s.name.includes('LAB')))
                     ).map(subject => (
                       <option key={subject} value={subject}>{subject}</option>
                     ))}
@@ -410,6 +410,15 @@ const CreateClass: React.FC = () => {
                       placeholder="Enter custom subject name"
                       value={customSubjectName}
                       onChange={e => setCustomSubjectName(e.target.value)}
+                    />
+                  )}
+                  {isLabSelected && (
+                    <input
+                      type="text"
+                      className="w-full mt-2 px-3 py-2.5 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors duration-200"
+                      placeholder="Enter subject name for lab (e.g., Programming, Database)"
+                      value={labSubjectName}
+                      onChange={e => setLabSubjectName(e.target.value)}
                     />
                   )}
                 </div>
@@ -454,6 +463,11 @@ const CreateClass: React.FC = () => {
                           <span className="text-gray-300 ml-2">
                             - {facultyList.find(f => f.user._id === subject.teacherId)?.name || 'Unknown'}
                           </span>
+                          {subject.isLab && (
+                            <span className="text-green-400 ml-2 text-sm">
+                              (Lab - {subject.duration}hrs)
+                            </span>
+                          )}
                         </div>
                         <Button
                           type="button"

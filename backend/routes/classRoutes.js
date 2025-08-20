@@ -18,22 +18,10 @@ router.post('/create', async (req, res) => {
       university,
       year,
       semester,
-      teacherId,
       subjects
     } = req.body;
 
     console.log('Received payload:', req.body);
-
-    // Validate teacherId
-    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return res.status(400).json({ message: 'Invalid class teacher ID format' });
-    }
-
-    // Check if teacher exists in Faculty collection
-    const teacher = await Faculty.findOne({ user: teacherId }).populate('user');
-    if (!teacher) {
-      return res.status(404).json({ message: 'Class teacher not found in Faculty collection' });
-    }
 
     // Validate subjects
     if (!subjects || subjects.length === 0) {
@@ -76,6 +64,9 @@ router.post('/create', async (req, res) => {
       nextClassId = String(lastId + 1).padStart(5, '0');
     }
 
+    // Auto-populate teachers array from unique subject teachers
+    const uniqueTeacherIds = [...new Set(formattedSubjects.map(subject => subject.teacher.toString()))];
+
     // Create new class
     const newClass = new Class({
       classCode,
@@ -83,7 +74,7 @@ router.post('/create', async (req, res) => {
       course,
       year,
       semester,
-      teacher: teacherId,
+      teachers: uniqueTeacherIds,
       classStrength,
       boys,
       girls,
@@ -95,7 +86,7 @@ router.post('/create', async (req, res) => {
 
     // Populate teacher details for response
     const populatedClass = await Class.findById(newClass._id)
-      .populate('teacher')
+      .populate('teachers')
       .populate('subjects.teacher');
 
     res.status(201).json({
@@ -103,7 +94,7 @@ router.post('/create', async (req, res) => {
       classCode,
       classId: newClass.classId,
       simpleId: newClass.classId,
-      teacher: populatedClass.teacher,
+      teachers: populatedClass.teachers,
       subjects: populatedClass.subjects
     });
   } catch (error) {
@@ -140,11 +131,11 @@ router.post('/create', async (req, res) => {
 router.get('/debug-classes', async (req, res) => {
   try {
     const allClasses = await Class.find({})
-      .populate('teacher')
+      .populate('teachers')
       .populate('subjects.teacher');
     console.log('All classes in database:', allClasses.length);
     allClasses.forEach(cls => {
-      console.log(`Class: ${cls.classCode}, Teacher: ${cls.teacher ? cls.teacher._id : 'None'}`);
+      console.log(`Class: ${cls.classCode}, Teachers: ${cls.teachers ? cls.teachers.length : 0}`);
       cls.subjects.forEach(subject => {
         console.log(`Subject: ${subject.name}, Teacher: ${subject.teacher ? subject.teacher._id : 'None'}`);
       });
@@ -179,10 +170,30 @@ router.get('/my-class', verifyToken, async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    console.log('Looking for class with teacher:', req.user.userId);
-    const classDoc = await Class.findOne({ teacher: req.user.userId })
-      .populate('teacher')
+    // Use classCode from JWT token if available, otherwise find any class assigned to teacher
+    let classDoc;
+    if (req.user.classCode) {
+      console.log('Looking for specific class:', req.user.classCode);
+      classDoc = await Class.findOne({ 
+        classCode: req.user.classCode,
+        teachers: req.user.userId 
+      })
+      .populate('teachers')
       .populate('subjects.teacher');
+      
+      if (!classDoc) {
+        console.log('Teacher not assigned to selected class:', req.user.classCode);
+        return res.status(403).json({ 
+          message: 'Access denied - classCode mismatch',
+          requestedClass: req.user.classCode
+        });
+      }
+    } else {
+      console.log('No classCode in token, looking for any class with teacher:', req.user.userId);
+      classDoc = await Class.findOne({ teachers: req.user.userId })
+        .populate('teachers')
+        .populate('subjects.teacher');
+    }
 
     if (!classDoc) {
       console.log('Class not found for teacher:', req.user.userId);
@@ -198,9 +209,9 @@ router.get('/my-class', verifyToken, async (req, res) => {
     console.log('Returning class data:', classDoc.classCode);
     res.json({
       class: {
-        classId: classDoc.classId,
+        classId: classDoc._id,
         classCode: classDoc.classCode,
-        teacherName: classDoc.teacher ? classDoc.teacher.name : req.user.username,
+        teacherNames: classDoc.teachers ? classDoc.teachers.map(t => t.name).join(', ') : req.user.username,
         university: classDoc.university,
         course: classDoc.course,
         year: classDoc.year,
@@ -219,6 +230,49 @@ router.get('/my-class', verifyToken, async (req, res) => {
 });
 
 // Get all classes for admin dashboard
+// Get classes accessible by a specific faculty member
+router.get('/faculty/:facultyId', async (req, res) => {
+  try {
+    const { facultyId } = req.params;
+    
+    const classes = await Class.find(
+      { teachers: facultyId },
+      {
+        classId: 1,
+        classCode: 1,
+        university: 1,
+        course: 1,
+        year: 1,
+        semester: 1,
+        teachers: 1,
+        classStrength: 1,
+        createdAt: 1
+      }
+    )
+      .populate('teachers', 'name')
+      .sort({ createdAt: -1 });
+
+    res.json({ 
+      success: true,
+      classes: classes.map(cls => ({
+        _id: cls._id,
+        classId: cls.classId,
+        classCode: cls.classCode,
+        university: cls.university,
+        course: cls.course,
+        year: cls.year,
+        semester: cls.semester,
+        classStrength: cls.classStrength,
+        teacherNames: cls.teachers.map(teacher => teacher.name).join(', '),
+        displayName: `${cls.classCode} - ${cls.course} ${cls.year}-${cls.semester} (${cls.university})`
+      }))
+    });
+  } catch (error) {
+    console.error('Get faculty classes error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 router.get('/', async (req, res) => {
   try {
     const classes = await Class.find({}, {
@@ -228,7 +282,7 @@ router.get('/', async (req, res) => {
       course: 1,
       year: 1,
       semester: 1,
-      teacher: 1,
+      teachers: 1,
       classStrength: 1,
       boys: 1,
       girls: 1,
@@ -237,20 +291,29 @@ router.get('/', async (req, res) => {
       createdAt: 1,
       isActive: 1
     })
-      .populate('teacher')
+      .populate('teachers')
       .populate('subjects.teacher')
       .sort({ createdAt: -1 });
 
+    // Get actual student counts for each class
+    const classesWithStudentCount = await Promise.all(
+      classes.map(async (cls) => {
+        const actualStudentCount = await Student.countDocuments({ class: cls._id });
+        return {
+          ...cls.toObject(),
+          teacherNames: cls.teachers ? cls.teachers.map(t => t.name).join(', ') : null,
+          actualStudentCount, // Real-time student count
+          subjects: cls.subjects.map(subject => ({
+            name: subject.name,
+            teacherId: subject.teacher ? subject.teacher._id : null,
+            teacherName: subject.teacher ? subject.teacher.name : null
+          }))
+        };
+      })
+    );
+
     res.json({ 
-      classes: classes.map(cls => ({
-        ...cls.toObject(),
-        teacherName: cls.teacher ? cls.teacher.name : null,
-        subjects: cls.subjects.map(subject => ({
-          name: subject.name,
-          teacherId: subject.teacher ? subject.teacher._id : null,
-          teacherName: subject.teacher ? subject.teacher.name : null
-        }))
-      }))
+      classes: classesWithStudentCount
     });
   } catch (error) {
     console.error('Get all classes error:', error);
@@ -264,7 +327,7 @@ router.get('/id/:classId', async (req, res) => {
     const { classId } = req.params;
     const classDoc = await Class.findOne({ classId })
       .populate('studentIds')
-      .populate('teacher')
+      .populate('teachers')
       .populate('subjects.teacher');
     
     if (!classDoc) {
@@ -297,7 +360,7 @@ router.get('/:classCode', verifyToken, async (req, res) => {
 
     const classDoc = await Class.findOne({ classCode })
       .populate('studentIds')
-      .populate('teacher')
+      .populate('teachers')
       .populate('subjects.teacher');
     
     if (!classDoc) {
@@ -436,7 +499,7 @@ router.put('/:classId/working-days', async (req, res) => {
         workingDaysLocked: true
       },
       { new: true }
-    ).populate('teacher').populate('subjects.teacher');
+    ).populate('teachers').populate('subjects.teacher');
 
     if (!updatedClass) {
       return res.status(404).json({ message: 'Class not found' });
@@ -457,6 +520,30 @@ router.put('/:classId/working-days', async (req, res) => {
   } catch (error) {
     console.error('Update working days error:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Temporary endpoint to fix teacher assignment
+router.post('/fix-teacher-assignment', async (req, res) => {
+  try {
+    const { teacherId, classCode } = req.body;
+    
+    console.log(`Adding teacher ${teacherId} to class ${classCode}`);
+    
+    const result = await Class.updateOne(
+      { classCode: classCode },
+      { $addToSet: { teachers: teacherId } }
+    );
+    
+    console.log('Update result:', result);
+    
+    const updatedClass = await Class.findOne({ classCode: classCode }).select('classCode teachers');
+    console.log('Updated class:', updatedClass);
+    
+    res.json({ success: true, result, updatedClass });
+  } catch (error) {
+    console.error('Fix teacher assignment error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 

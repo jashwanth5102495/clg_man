@@ -8,8 +8,8 @@ const router = express.Router();
 
 // Unified login route for admin, faculty, and student
 router.post('/login', async (req, res) => {
-  const { username, password, university } = req.body;
-  console.log('Login attempt:', { username });
+  const { username, password, university, classId } = req.body;
+  console.log('Login attempt:', { username, classId });
 
   try {
     // First, try to find in User collection (admin or faculty)
@@ -71,13 +71,33 @@ router.post('/login', async (req, res) => {
 
     // Generate token with role and classCode (if faculty)
     let classCode = null;
+    let selectedClass = null;
+    
     if (user.role === 'faculty') {
-      const classDoc = await Class.findOne({ teacher: user._id }).select('classCode classId');
-      if (classDoc) {
-        classCode = classDoc.classCode;
-        console.log('Class found for teacher:', classDoc.classCode);
+      // If classId is provided, validate faculty access to that specific class
+      if (classId) {
+        selectedClass = await Class.findById(classId).select('classCode classId teachers university course year semester');
+        if (!selectedClass) {
+          return res.status(404).json({ message: 'Selected class not found' });
+        }
+        
+        // Check if faculty is assigned to this class
+        const hasAccess = selectedClass.teachers.some(teacherId => teacherId.toString() === user._id.toString());
+        if (!hasAccess) {
+          return res.status(403).json({ message: 'You are not assigned to this class' });
+        }
+        
+        classCode = selectedClass.classCode;
+        console.log('Faculty access validated for class:', selectedClass.classCode);
       } else {
-        console.log('No class assigned to teacher:', user._id);
+        // If no classId provided, find any class assigned to this faculty
+        selectedClass = await Class.findOne({ teachers: user._id }).select('classCode classId');
+        if (selectedClass) {
+          classCode = selectedClass.classCode;
+          console.log('Class found for faculty:', selectedClass.classCode);
+        } else {
+          console.log('No class assigned to faculty:', user._id);
+        }
       }
     }
 
@@ -93,7 +113,6 @@ router.post('/login', async (req, res) => {
 
     // If faculty, return class info
     if (user.role === 'faculty') {
-      const classDoc = await Class.findOne({ teacher: user._id });
       return res.json({
         token,
         user: {
@@ -103,15 +122,15 @@ router.post('/login', async (req, res) => {
           name: user.name,
           collegeId: user.collegeId
         },
-        classInfo: classDoc
+        classInfo: selectedClass
           ? {
-              classId: classDoc.classId,
-              classCode: classDoc.classCode,
+              classId: selectedClass._id,
+              classCode: selectedClass.classCode,
               teacherName: user.name,
-              university: classDoc.university,
-              course: classDoc.course,
-              year: classDoc.year,
-              semester: classDoc.semester
+              university: selectedClass.university,
+              course: selectedClass.course,
+              year: selectedClass.year,
+              semester: selectedClass.semester
             }
           : null
       });
@@ -176,19 +195,11 @@ export const verifyToken = async (req, res, next) => {
       role: user.role,
       type: user.role === 'faculty' ? 'teacher' : user.role,
       username: user.username,
-      collegeId: user.collegeId
+      collegeId: user.collegeId,
+      classCode: decoded.classCode // Keep the classCode from JWT token (selected during login)
     };
 
-    // If teacher, fetch classCode
-    if (req.user.role === 'faculty') {
-      const classDoc = await Class.findOne({ teacher: user._id }).select('classCode');
-      if (classDoc) {
-        req.user.classCode = classDoc.classCode;
-        console.log('Assigned classCode to req.user:', req.user.classCode);
-      } else {
-        console.log('No class found for teacher:', user._id);
-      }
-    }
+    console.log('Using classCode from JWT token:', decoded.classCode);
 
     console.log('req.user set:', req.user);
     next();
@@ -197,5 +208,46 @@ export const verifyToken = async (req, res, next) => {
     res.status(401).json({ message: 'Invalid token' });
   }
 };
+
+// Verify faculty username and return faculty ID
+router.post('/verify-faculty', async (req, res) => {
+  const { username } = req.body;
+  console.log('Faculty verification attempt:', { username });
+
+  try {
+    if (!username) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username is required'
+      });
+    }
+
+    // Find user by username and check if they are faculty
+    const user = await User.findOne({ username, role: 'faculty' });
+    
+    if (!user) {
+      console.log('Faculty not found for username:', username);
+      return res.status(404).json({
+        success: false,
+        message: 'Faculty not found'
+      });
+    }
+
+    console.log('Faculty verification successful:', { username, facultyId: user._id });
+
+    return res.json({
+      success: true,
+      facultyId: user._id,
+      name: user.name
+    });
+
+  } catch (error) {
+    console.error('Faculty verification error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error during faculty verification'
+    });
+  }
+});
 
 export default router;

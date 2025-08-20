@@ -30,7 +30,7 @@ const Landing: React.FC = () => {
           <animate attributeName="cx" values="50%;10%;50%" dur="14s" repeatCount="indefinite" />
         </circle>
       </svg>
-      <Header title="Student Management System" />
+      <Header title="Akash Online Attendance Management System" />
       {/* Hero Section */}
       <section className="relative z-10 text-center py-20">
         <div className="flex justify-center mb-6">
@@ -38,7 +38,7 @@ const Landing: React.FC = () => {
             <GraduationCap className="w-12 h-12 text-white drop-shadow-lg animate-glow" />
           </div>
         </div>
-        <h1 className="text-5xl font-extrabold text-white mb-4 tracking-tight opacity-0 animate-fade-in [animation-delay:200ms]">Student Management System</h1>
+        <h1 className="text-5xl font-extrabold text-white mb-4 tracking-tight opacity-0 animate-fade-in [animation-delay:200ms]">Akash Online Attendance Management System</h1>
         <p className="text-xl text-gray-300 max-w-2xl mx-auto mb-8 opacity-0 animate-fade-in [animation-delay:600ms]">
           Comprehensive solution for managing student data, attendance, and academic performance
         </p>
